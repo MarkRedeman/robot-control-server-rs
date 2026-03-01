@@ -85,21 +85,9 @@ async fn handle_socket(
 
             match state_result {
                 Ok(state) => {
-                    let mut flat_state = std::collections::HashMap::new();
-                    for joint in &state.joints {
-                        let val = if normalize {
-                            joint
-                                .calibrated_angle
-                                .unwrap_or_else(|| f64::from(joint.raw_position))
-                        } else {
-                            f64::from(joint.raw_position)
-                        };
-                        flat_state.insert(joint.joint.clone(), val);
-                    }
-
                     let response = RobotResponse::StateWasUpdated {
                         timestamp: state.timestamp,
-                        state: flat_state,
+                        state: state.to_flat_state(normalize),
                         is_controlled: true, // TODO: track actual torque state
                     };
                     let json = serde_json::to_string(&response).unwrap_or_default();

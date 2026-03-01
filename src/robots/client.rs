@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use poem_openapi::{Enum, Object};
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +58,28 @@ pub struct JointState {
 pub struct ArmState {
     pub timestamp: f64,
     pub joints: Vec<JointState>,
+}
+
+impl ArmState {
+    /// Convert to a flat joint-name → value map.
+    ///
+    /// When `normalize` is true, uses the calibrated angle if available,
+    /// otherwise falls back to the raw position. When false, always uses
+    /// the raw position.
+    pub fn to_flat_state(&self, normalize: bool) -> HashMap<String, f64> {
+        self.joints
+            .iter()
+            .map(|j| {
+                let val = if normalize {
+                    j.calibrated_angle
+                        .unwrap_or_else(|| f64::from(j.raw_position))
+                } else {
+                    f64::from(j.raw_position)
+                };
+                (j.joint.clone(), val)
+            })
+            .collect()
+    }
 }
 
 pub trait RobotClient: Send + Sync {

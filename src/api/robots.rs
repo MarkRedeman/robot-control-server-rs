@@ -76,15 +76,7 @@ impl RobotsApi {
         .map_err(|e| AppError::internal("task_error", e.to_string()))?
         .map_err(AppError::robot_not_found)?;
 
-        let mut flat_state = HashMap::new();
-        for joint in &state_data.joints {
-            let val = if normalize.0 {
-                joint.calibrated_angle.unwrap_or_else(|| f64::from(joint.raw_position))
-            } else {
-                f64::from(joint.raw_position)
-            };
-            flat_state.insert(joint.joint.clone(), val);
-        }
+        let flat_state = state_data.to_flat_state(normalize.0);
 
         tracing::info!("API: state read successfully");
 
