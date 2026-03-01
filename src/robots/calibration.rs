@@ -56,15 +56,15 @@ pub fn by_motor_id(cal: &ArmCalibration) -> HashMap<u8, &JointCalibration> {
 /// `drive_mode` is ignored for DEGREES mode (all SO-101 arms use drive_mode=0
 /// anyway).
 pub fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
-    let mid = (jc.range_min as f64 + jc.range_max as f64) / 2.0;
-    (position as f64 - mid) * 360.0 / MAX_RESOLUTION
+    let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
+    (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
 }
 
 /// Apply lerobot RANGE_0_100 calibration (used for the gripper).
 pub fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
-    let min = jc.range_min as f64;
-    let max = jc.range_max as f64;
-    let clamped = (position as f64).clamp(min, max);
+    let min = f64::from(jc.range_min);
+    let max = f64::from(jc.range_max);
+    let clamped = f64::from(position).clamp(min, max);
     let pct = (clamped - min) / (max - min) * 100.0;
     if jc.drive_mode != 0 {
         100.0 - pct

@@ -49,8 +49,6 @@ pub struct JointState {
     pub joint: String,
     pub motor_id: u8,
     pub raw_position: i16,
-    pub position_rad: f64,
-    pub position_deg: f64,
     pub calibrated_angle: Option<f64>,
 }
 

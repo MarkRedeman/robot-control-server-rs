@@ -30,12 +30,16 @@ pub fn format_arm_state(label: &str, state: &ArmState) -> String {
         .set_header(header);
 
     for js in &state.joints {
+        let position_rad = (2.0 * std::f64::consts::PI * (f64::from(js.raw_position)) / 4096.0)
+            - std::f64::consts::PI;
+        let position_deg = position_rad.to_degrees();
+
         let mut row = vec![
             Cell::new(js.joint.to_string()),
             Cell::new(js.motor_id),
             Cell::new(js.raw_position),
-            Cell::new(format!("{:>8.3}", js.position_rad)),
-            Cell::new(format!("{:>8.1}", js.position_deg)),
+            Cell::new(format!("{:>8.3}", position_rad)),
+            Cell::new(format!("{:>8.1}", position_deg)),
         ];
         if has_calibration {
             let angle_str = match js.calibrated_angle {

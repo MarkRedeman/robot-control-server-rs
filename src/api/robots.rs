@@ -80,9 +80,9 @@ impl RobotsApi {
         let mut flat_state = HashMap::new();
         for joint in &state_data.joints {
             let val = if normalize.0 {
-                joint.calibrated_angle.unwrap_or(joint.position_rad)
+                joint.calibrated_angle.unwrap_or_else(|| f64::from(joint.raw_position))
             } else {
-                joint.position_deg
+                f64::from(joint.raw_position)
             };
             flat_state.insert(joint.joint.clone(), val);
         }

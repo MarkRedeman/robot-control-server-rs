@@ -25,14 +25,14 @@ pub fn load_calibration(path: &std::path::Path) -> Result<ArmCalibration, anyhow
 }
 
 fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
-    let mid = (jc.range_min as f64 + jc.range_max as f64) / 2.0;
-    (position as f64 - mid) * 360.0 / MAX_RESOLUTION
+    let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
+    (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
 }
 
 fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
-    let min = jc.range_min as f64;
-    let max = jc.range_max as f64;
-    let clamped = (position as f64).clamp(min, max);
+    let min = f64::from(jc.range_min);
+    let max = f64::from(jc.range_max);
+    let clamped = f64::from(position).clamp(min, max);
     let pct = (clamped - min) / (max - min) * 100.0;
     if jc.drive_mode != 0 {
         100.0 - pct
@@ -114,10 +114,6 @@ impl FeetechRobotClient {
 
                 let decoded_position = decode_sign_magnitude(raw_u16);
 
-                let position_rad = (2.0 * std::f64::consts::PI * (raw_position as f64) / 4096.0)
-                    - std::f64::consts::PI;
-                let position_deg = position_rad.to_degrees();
-
                 let calibrated_angle = self
                     .calibration
                     .as_ref()
@@ -134,8 +130,6 @@ impl FeetechRobotClient {
                     joint: joint.name().to_string(),
                     motor_id: joint.motor_id(),
                     raw_position,
-                    position_rad,
-                    position_deg,
                     calibrated_angle,
                 }
             })

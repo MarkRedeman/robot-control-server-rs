@@ -94,9 +94,9 @@ async fn handle_socket(
                     let mut flat_state = std::collections::HashMap::new();
                     for joint in &state.joints {
                         let val = if normalize {
-                            joint.calibrated_angle.unwrap_or(joint.position_rad)
+                            joint.calibrated_angle.unwrap_or_else(|| f64::from(joint.raw_position))
                         } else {
-                            joint.position_deg // Or raw position? Python uses normalized = [-1, 1] or raw encoder
+                            f64::from(joint.raw_position)
                         };
                         let joint_name =  joint.joint.clone();
 
