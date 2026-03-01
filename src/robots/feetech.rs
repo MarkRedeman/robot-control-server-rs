@@ -103,7 +103,7 @@ impl FeetechRobotClient {
             .sync_read_raw_data(&ids, 56, 11)
             .map_err(|e| anyhow::anyhow!("Failed to read servo data: {}", e))?;
 
-        let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+        let timestamp = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
 
         let joints: Vec<JointState> = Joint::ALL
             .iter()

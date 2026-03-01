@@ -60,7 +60,7 @@ pub struct JointState {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Object)]
 pub struct ArmState {
-    pub timestamp: String,
+    pub timestamp: f64,
     pub joints: Vec<JointState>,
 }
 

@@ -103,10 +103,7 @@ async fn handle_socket(
                         flat_state.insert(joint_name, val);
                     }
 
-                    let timestamp = match state.timestamp.parse::<f64>() {
-                        Ok(t) => t,
-                        Err(_) => chrono::Utc::now().timestamp_millis() as f64 / 1000.0,
-                    };
+                    let timestamp = state.timestamp;
 
                     let response = RobotResponse::StateWasUpdated {
                         timestamp,
