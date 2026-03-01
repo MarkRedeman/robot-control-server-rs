@@ -9,7 +9,6 @@ use poem::{
     IntoResponse, Response,
 };
 use serde::Deserialize;
-use tokio::sync::mpsc;
 
 use crate::robots::{parse_command, RobotResponse, RobotWorkerHandle};
 use crate::state::AppState;
@@ -47,108 +46,77 @@ pub async fn robot_ws(
 
 /// Manages the WebSocket session for a single robot.
 ///
-/// Architecture:
-///   - **Writer task** — owns the sink half of the socket and drains an mpsc
-///     channel, sending each message to the client.
-///   - **State forwarder task** — takes polled `ArmState` snapshots from the
-///     worker's `state_rx` channel, converts them to `StateWasUpdated` JSON,
-///     and pushes them into the writer channel.
-///   - **Command loop** (this function) — reads the stream half. Incoming
-///     text messages are parsed as `RobotCommand`s, sent to the worker via
-///     `send_command()`, and the response is pushed into the writer channel.
+/// A single `tokio::select!` loop reads from both the worker's polled
+/// state channel and the WebSocket stream, writing responses directly
+/// to the socket. No intermediate channel or writer task needed.
 async fn handle_socket(
     socket: WebSocketStream,
     serial_id: String,
     handle: RobotWorkerHandle,
     normalize: bool,
 ) {
-    let (sink, mut stream) = socket.split();
-    let (tx, rx) = mpsc::channel::<String>(100);
+    let mut state_rx = handle.take_state_rx();
+    if state_rx.is_none() {
+        tracing::warn!(
+            "state_rx already taken for robot {} — no state polling for this WS session",
+            serial_id
+        );
+    }
 
-    // --- Writer task: channel → sink ---
-    let writer_handle = tokio::spawn(write_loop(sink, rx));
+    // We can't split the socket because both branches of select! need
+    // mutable access to write. Instead, use the unsplit socket directly
+    // (same pattern as camera_ws).
+    let (mut sink, mut stream) = socket.split();
 
-    // --- State forwarder task: worker state_rx → channel ---
-    let state_forwarder = if let Some(mut state_rx) = handle.take_state_rx() {
-        let tx_state = tx.clone();
-        Some(tokio::spawn(async move {
-            while let Some(state) = state_rx.recv().await {
+    loop {
+        tokio::select! {
+            // --- Polled state from worker ---
+            Some(state) = async {
+                match state_rx.as_mut() {
+                    Some(rx) => rx.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => {
                 let response = RobotResponse::StateWasUpdated {
                     timestamp: state.timestamp,
                     state: state.to_flat_state(normalize),
                     is_controlled: true, // TODO: track actual torque state
                 };
                 let json = serde_json::to_string(&response).unwrap_or_default();
-                if tx_state.send(json).await.is_err() {
+                if sink.send(Message::Text(json)).await.is_err() {
                     break;
                 }
             }
-        }))
-    } else {
-        tracing::warn!(
-            "state_rx already taken for robot {} — no state polling for this WS session",
-            serial_id
-        );
-        None
-    };
 
-    // --- Command loop: stream → worker → channel ---
-    while let Some(msg) = stream.next().await {
-        match msg {
-            Ok(Message::Text(text)) => {
-                let cmd = match parse_command(&text) {
-                    Ok(command) => command,
-                    Err(e) => {
-                        let resp = RobotResponse::Error {
-                            error: "parse_error".to_string(),
-                            message: e,
+            // --- Incoming WebSocket messages ---
+            msg = stream.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let response = match parse_command(&text) {
+                            Ok(cmd) => match handle.send_command(cmd).await {
+                                Ok(resp) => resp,
+                                Err(e) => RobotResponse::Error {
+                                    error: "worker_error".to_string(),
+                                    message: e,
+                                },
+                            },
+                            Err(e) => RobotResponse::Error {
+                                error: "parse_error".to_string(),
+                                message: e,
+                            },
                         };
-                        let json = serde_json::to_string(&resp).unwrap_or_default();
-                        if tx.send(json).await.is_err() {
+                        let json = serde_json::to_string(&response).unwrap_or_default();
+                        if sink.send(Message::Text(json)).await.is_err() {
                             break;
                         }
-                        continue;
                     }
-                };
-
-                let response = match handle.send_command(cmd).await {
-                    Ok(resp) => resp,
-                    Err(e) => RobotResponse::Error {
-                        error: "worker_error".to_string(),
-                        message: e,
-                    },
-                };
-
-                let json = serde_json::to_string(&response).unwrap_or_default();
-                if tx.send(json).await.is_err() {
-                    break;
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    _ => {}
                 }
             }
-            Ok(Message::Close(_)) | Err(_) => break,
-            _ => {}
         }
     }
 
-    // Client disconnected — shut everything down.
-    drop(tx);
-    if let Some(forwarder) = state_forwarder {
-        forwarder.abort();
-        let _ = forwarder.await;
-    }
-    let _ = writer_handle.await;
-
-    tracing::info!("WebSocket session closed for robot {}", serial_id);
-}
-
-/// Drains the outgoing message channel and writes each message to the sink.
-async fn write_loop(
-    mut sink: futures_util::stream::SplitSink<WebSocketStream, Message>,
-    mut rx: mpsc::Receiver<String>,
-) {
-    while let Some(json) = rx.recv().await {
-        if sink.send(Message::Text(json)).await.is_err() {
-            break;
-        }
-    }
     let _ = sink.close().await;
+    tracing::info!("WebSocket session closed for robot {}", serial_id);
 }
