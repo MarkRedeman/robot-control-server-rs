@@ -14,13 +14,9 @@ pub fn format_arm_state(label: &str, state: &ArmState) -> String {
     let mut header = vec![
         Cell::new("Joint"),
         Cell::new("ID"),
+        Cell::new("Raw Pos"),
         Cell::new("Pos (rad)"),
         Cell::new("Pos (deg)"),
-        Cell::new("Speed (rad/s)"),
-        Cell::new("Load"),
-        Cell::new("Voltage"),
-        Cell::new("Temp (C)"),
-        Cell::new("Moving"),
     ];
     if has_calibration {
         header.push(Cell::new("Joint Angle"));
@@ -37,13 +33,9 @@ pub fn format_arm_state(label: &str, state: &ArmState) -> String {
         let mut row = vec![
             Cell::new(js.joint.to_string()),
             Cell::new(js.motor_id),
+            Cell::new(js.raw_position),
             Cell::new(format!("{:>8.3}", js.position_rad)),
             Cell::new(format!("{:>8.1}", js.position_deg)),
-            Cell::new(format!("{:>8.3}", js.speed_rad_s)),
-            Cell::new(js.load),
-            Cell::new(js.voltage),
-            Cell::new(js.temperature),
-            Cell::new(if js.moving { "Yes" } else { "No" }),
         ];
         if has_calibration {
             let angle_str = match js.calibrated_angle {

@@ -100,7 +100,7 @@ impl FeetechRobotClient {
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
         let raw_data = controller
-            .sync_read_raw_data(&ids, 56, 11)
+            .sync_read_raw_present_position(&ids)
             .map_err(|e| anyhow::anyhow!("Failed to read servo data: {}", e))?;
 
         let timestamp = chrono::Utc::now().timestamp_millis() as f64 / 1000.0;
@@ -109,29 +109,14 @@ impl FeetechRobotClient {
             .iter()
             .enumerate()
             .map(|(i, &joint)| {
-                let d = &raw_data[i];
-
-                let raw_u16 = u16::from_le_bytes([d[0], d[1]]);
-                let raw_speed = u16::from_le_bytes([d[2], d[3]]);
-                let raw_load = u16::from_le_bytes([d[4], d[5]]);
-                let voltage = d[6];
-                let temperature = d[7];
-                let moving = d[10] != 0;
+                let raw_position = raw_data[i];
+                let raw_u16 = raw_position as u16;
 
                 let decoded_position = decode_sign_magnitude(raw_u16);
 
-                let raw_position = i16::from_le_bytes([d[0], d[1]]);
                 let position_rad = (2.0 * std::f64::consts::PI * (raw_position as f64) / 4096.0)
                     - std::f64::consts::PI;
                 let position_deg = position_rad.to_degrees();
-
-                let speed_rad_s = {
-                    let mut value = raw_speed as f64;
-                    if value > (1u64 << 15) as f64 {
-                        value = -(value - (1u64 << 15) as f64);
-                    }
-                    (2.0 * std::f64::consts::PI * value) / (4096.0 - 1.0)
-                };
 
                 let calibrated_angle = self
                     .calibration
@@ -148,13 +133,9 @@ impl FeetechRobotClient {
                 JointState {
                     joint: joint.name().to_string(),
                     motor_id: joint.motor_id(),
+                    raw_position,
                     position_rad,
                     position_deg,
-                    speed_rad_s,
-                    load: raw_load,
-                    voltage,
-                    temperature,
-                    moving,
                     calibrated_angle,
                 }
             })
