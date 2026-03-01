@@ -9,7 +9,14 @@ chrono = "0.4.44"
 clap = { version = "4.5.60", features = ["derive"] }
 comfy-table = "7.2.2"
 ctrlc = "3.5.2"
+futures-util = "0.3.32"
+poem = "3.1.12"
+poem-openapi = { version = "5.1.16", features = ["swagger-ui", "websocket"] }
 rustypot = "1.4.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serialport = "4.8.1"
+thiserror = "2.0.18"
+tokio = { version = "1.49.0", features = ["full"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
