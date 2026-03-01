@@ -49,7 +49,6 @@ pub fn parse_command(data: &str) -> Result<RobotCommand, String> {
 pub fn handle_command<Robot: RobotClient + ?Sized>(
     robot: &Robot,
     cmd: RobotCommand,
-    normalize: bool,
 ) -> RobotResponse {
     match cmd {
         RobotCommand::Ping => RobotResponse::Pong,
@@ -70,14 +69,12 @@ pub fn handle_command<Robot: RobotClient + ?Sized>(
             },
         },
 
-        RobotCommand::SetJointsState { joints } => {
-            match robot.set_joints_state(joints, normalize) {
-                Ok(_) => RobotResponse::JointsStateWasSet,
-                Err(e) => RobotResponse::Error {
-                    error: "set_joints_failed".to_string(),
-                    message: e.to_string(),
-                },
-            }
-        }
+        RobotCommand::SetJointsState { joints } => match robot.set_joints_state(joints) {
+            Ok(_) => RobotResponse::JointsStateWasSet,
+            Err(e) => RobotResponse::Error {
+                error: "set_joints_failed".to_string(),
+                message: e.to_string(),
+            },
+        },
     }
 }

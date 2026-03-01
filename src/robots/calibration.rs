@@ -34,6 +34,7 @@ pub fn load_calibration(path: &Path) -> Result<ArmCalibration> {
 }
 
 /// Build a lookup table from motor ID to JointCalibration.
+#[allow(dead_code)]
 pub fn by_motor_id(cal: &ArmCalibration) -> HashMap<u8, &JointCalibration> {
     cal.values().map(|jc| (jc.id, jc)).collect()
 }
@@ -48,6 +49,7 @@ pub fn by_motor_id(cal: &ArmCalibration) -> HashMap<u8, &JointCalibration> {
 ///
 /// Note: DEGREES mode does NOT clamp and does NOT apply drive_mode
 /// (matches lerobot's `_normalize` for `MotorNormMode.DEGREES`).
+#[allow(dead_code)]
 pub fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
     let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
     (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
@@ -88,4 +90,54 @@ pub fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
     } else {
         pct
     }
+}
+
+// ---------------------------------------------------------------------------
+// Unnormalize (inverse) functions: calibrated value → raw servo position
+// ---------------------------------------------------------------------------
+
+/// Inverse of `calibrated_degrees`.
+///
+/// Matches lerobot's `_unnormalize` for `MotorNormMode.DEGREES`:
+///   mid = (range_min + range_max) / 2
+///   raw = (value * 4095 / 360) + mid
+#[allow(dead_code)]
+pub fn unnormalize_degrees(value: f64, jc: &JointCalibration) -> i16 {
+    let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
+    let raw = (value * MAX_RESOLUTION / 360.0) + mid;
+    raw as i16
+}
+
+/// Inverse of `calibrated_m100_100`.
+///
+/// Matches lerobot's `_unnormalize` for `MotorNormMode.RANGE_M100_100`:
+///   val = -value if drive_mode else value
+///   bounded = clamp(val, -100, 100)
+///   raw = int(((bounded + 100) / 200) * (max - min) + min)
+pub fn unnormalize_m100_100(value: f64, jc: &JointCalibration) -> i16 {
+    let val = if jc.drive_mode != 0 { -value } else { value };
+    let bounded = val.clamp(-100.0, 100.0);
+    let min = f64::from(jc.range_min);
+    let max = f64::from(jc.range_max);
+    let raw = ((bounded + 100.0) / 200.0) * (max - min) + min;
+    raw as i16
+}
+
+/// Inverse of `calibrated_percentage`.
+///
+/// Matches lerobot's `_unnormalize` for `MotorNormMode.RANGE_0_100`:
+///   val = (100 - value) if drive_mode else value
+///   bounded = clamp(val, 0, 100)
+///   raw = int((bounded / 100) * (max - min) + min)
+pub fn unnormalize_percentage(value: f64, jc: &JointCalibration) -> i16 {
+    let val = if jc.drive_mode != 0 {
+        100.0 - value
+    } else {
+        value
+    };
+    let bounded = val.clamp(0.0, 100.0);
+    let min = f64::from(jc.range_min);
+    let max = f64::from(jc.range_max);
+    let raw = (bounded / 100.0) * (max - min) + min;
+    raw as i16
 }

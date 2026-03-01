@@ -70,8 +70,7 @@ impl RobotsApi {
         let state_data = tokio::task::spawn_blocking({
             let state = state.0.clone();
             let serial_id = serial_id.0.clone();
-            let normalize = normalize.0;
-            move || state.get_robot_state(&serial_id, normalize)
+            move || state.get_robot_state(&serial_id)
         })
         .await
         .map_err(|e| AppError::internal("task_error", e.to_string()))?
@@ -122,7 +121,6 @@ impl RobotsApi {
         &self,
         state: Data<&AppState>,
         serial_id: Path<String>,
-        #[oai(default = "default_normalize")] normalize: Query<bool>,
     ) -> Result<Json<RobotFullStateResponse>, AppError> {
         let _snapshot = state
             .get_or_create_robot(&serial_id.0)
@@ -131,8 +129,7 @@ impl RobotsApi {
         let state_data = tokio::task::spawn_blocking({
             let state = state.0.clone();
             let serial_id = serial_id.0.clone();
-            let normalize = normalize.0;
-            move || state.get_robot_state(&serial_id, normalize)
+            move || state.get_robot_state(&serial_id)
         })
         .await
         .map_err(|e| AppError::internal("task_error", e.to_string()))?
@@ -170,7 +167,7 @@ impl RobotsApi {
             joints: req.0.joints,
         };
         let response = tokio::task::spawn_blocking(move || {
-            handle_command(client.as_ref(), cmd, true)
+            handle_command(client.as_ref(), cmd)
         })
         .await
         .map_err(|e| AppError::internal("task_error", e.to_string()))?;

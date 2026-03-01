@@ -62,12 +62,17 @@ pub trait RobotClient: Send + Sync {
     fn port(&self) -> &str;
     fn is_connected(&self) -> bool;
 
-    fn read_state(&self, normalize: bool) -> Result<ArmState, anyhow::Error>;
+    /// Read current arm state. Always returns both raw and calibrated values
+    /// (when calibration data is available).
+    fn read_state(&self) -> Result<ArmState, anyhow::Error>;
+
+    /// Set joint positions using calibrated values. The values are unnormalized
+    /// to raw servo positions using calibration data internally.
     fn set_joints_state(
         &self,
         positions: std::collections::HashMap<String, f64>,
-        normalize: bool,
     ) -> Result<ArmState, anyhow::Error>;
+
     fn enable_torque(&self) -> Result<serde_json::Value, anyhow::Error>;
     fn disable_torque(&self) -> Result<serde_json::Value, anyhow::Error>;
 }

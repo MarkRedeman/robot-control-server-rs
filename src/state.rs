@@ -180,12 +180,8 @@ impl AppState {
         robots
     }
 
-    pub fn get_robot_state(&self, serial_id: &str, normalize: bool) -> Result<ArmState, String> {
-        tracing::info!(
-            "get_robot_state: serial_id={}, normalize={}",
-            serial_id,
-            normalize
-        );
+    pub fn get_robot_state(&self, serial_id: &str) -> Result<ArmState, String> {
+        tracing::info!("get_robot_state: serial_id={}", serial_id);
 
         let robots = self.robots.lock().map_err(|e| e.to_string())?;
 
@@ -195,7 +191,7 @@ impl AppState {
         })?;
 
         tracing::info!("Found robot entry, calling read_state");
-        entry.client.read_state(normalize).map_err(|e| {
+        entry.client.read_state().map_err(|e| {
             tracing::error!("read_state failed: {}", e);
             e.to_string()
         })

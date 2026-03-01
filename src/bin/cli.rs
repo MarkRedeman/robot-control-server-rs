@@ -146,7 +146,7 @@ fn main() -> Result<()> {
 
 fn run_oneshot(robots: &mut [Robot]) -> Result<()> {
     for robot in robots.iter_mut() {
-        let state = robot.client.read_state(false)?;
+        let state = robot.client.read_state()?;
         println!("{}", display::format_arm_state(&robot.label, &state));
     }
     Ok(())
@@ -186,7 +186,7 @@ fn run_watch_mode(robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
             .name(format!("reader-{}", robot.label))
             .spawn(move || {
                 while running.load(Ordering::SeqCst) {
-                    match robot.client.read_state(false) {
+                    match robot.client.read_state() {
                         Ok(state) => {
                             let mut snap = snapshot.lock().unwrap();
                             snap.state = Some(state);

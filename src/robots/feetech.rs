@@ -101,26 +101,43 @@ impl FeetechRobotClient {
     }
 
     fn set_joints_impl(&self, positions: HashMap<String, f64>) -> Result<ArmState, anyhow::Error> {
-        let ids = Self::motor_ids();
+        let cal = self
+            .calibration
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cannot set joints without calibration data"))?;
+
+        // Only command joints that are present in the input map.
+        let mut ids: Vec<u8> = Vec::new();
+        let mut raw_positions: Vec<i16> = Vec::new();
+
+        for &joint in Joint::ALL.iter() {
+            if let Some(&calibrated_value) = positions.get(joint.name()) {
+                let jc = cal.get(joint.name()).ok_or_else(|| {
+                    anyhow::anyhow!("No calibration data for joint '{}'", joint.name())
+                })?;
+
+                let raw = if joint == Joint::Gripper {
+                    calibration::unnormalize_percentage(calibrated_value, jc)
+                } else {
+                    calibration::unnormalize_m100_100(calibrated_value, jc)
+                };
+
+                ids.push(joint.motor_id());
+                raw_positions.push(raw);
+            }
+        }
+
+        if ids.is_empty() {
+            return self.read_arm_state_impl();
+        }
+
         let mut controller = self
             .controller
             .lock()
             .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
 
-        let mut target_positions: Vec<f64> = Vec::with_capacity(6);
-        for joint in Joint::ALL.iter() {
-            if let Some(&target_deg) = positions.get(joint.name()) {
-                let target_rad = target_deg * std::f64::consts::PI / 180.0;
-                let raw =
-                    (target_rad + std::f64::consts::PI) / (2.0 * std::f64::consts::PI) * 4096.0;
-                target_positions.push(raw);
-            } else {
-                target_positions.push(0.0);
-            }
-        }
-
         controller
-            .sync_write_goal_position(&ids, &target_positions)
+            .sync_write_raw_goal_position(&ids, &raw_positions)
             .map_err(|e| anyhow::anyhow!("Failed to write positions: {}", e))?;
 
         drop(controller);
@@ -138,15 +155,11 @@ impl RobotClient for FeetechRobotClient {
         self.controller.lock().map(|_| true).unwrap_or(false)
     }
 
-    fn read_state(&self, _normalize: bool) -> Result<ArmState, anyhow::Error> {
+    fn read_state(&self) -> Result<ArmState, anyhow::Error> {
         self.read_arm_state_impl()
     }
 
-    fn set_joints_state(
-        &self,
-        positions: HashMap<String, f64>,
-        _normalize: bool,
-    ) -> Result<ArmState, anyhow::Error> {
+    fn set_joints_state(&self, positions: HashMap<String, f64>) -> Result<ArmState, anyhow::Error> {
         self.set_joints_impl(positions)
     }
 
