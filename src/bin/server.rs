@@ -1,4 +1,4 @@
-use poem::{listener::TcpListener, middleware::Tracing, EndpointExt, Route, Server};
+use poem::{EndpointExt, Route, Server, listener::TcpListener, middleware::Tracing};
 use poem_openapi::OpenApiService;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 

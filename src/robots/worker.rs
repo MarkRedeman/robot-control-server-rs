@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot};
 
 use super::client::{ArmState, RobotClient};
-use super::commands::{handle_command, RobotCommand, RobotResponse};
+use super::commands::{RobotCommand, RobotResponse, handle_command};
 
 /// A command envelope sent to the worker thread.
 struct Envelope {
@@ -107,10 +107,7 @@ impl RobotWorkerHandle {
 ///
 /// Returns a [`RobotWorkerHandle`] through which the caller can send
 /// commands and receive polled state updates.
-pub fn spawn_worker(
-    client: Arc<dyn RobotClient>,
-    config: RobotWorkerConfig,
-) -> RobotWorkerHandle {
+pub fn spawn_worker(client: Arc<dyn RobotClient>, config: RobotWorkerConfig) -> RobotWorkerHandle {
     let fps = config.fps.clamp(1, 240);
     let poll_interval = Duration::from_millis(1000 / u64::from(fps));
 
@@ -126,7 +123,13 @@ pub fn spawn_worker(
     std::thread::Builder::new()
         .name("robot-worker".into())
         .spawn(move || {
-            worker_loop(client.as_ref(), cmd_rx, state_tx, running_clone, poll_interval);
+            worker_loop(
+                client.as_ref(),
+                cmd_rx,
+                state_tx,
+                running_clone,
+                poll_interval,
+            );
         })
         .expect("failed to spawn robot-worker thread");
 

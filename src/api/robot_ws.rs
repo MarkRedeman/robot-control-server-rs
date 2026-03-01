@@ -1,16 +1,15 @@
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use poem::{
-    handler,
+    IntoResponse, Response, handler,
     web::{
-        websocket::{Message, WebSocket, WebSocketStream},
         Data, Path, Query,
+        websocket::{Message, WebSocket, WebSocketStream},
     },
-    IntoResponse, Response,
 };
 use serde::Deserialize;
 
-use crate::robots::{parse_command, RobotResponse, RobotWorkerHandle};
+use crate::robots::{RobotResponse, RobotWorkerHandle, parse_command};
 use crate::state::AppState;
 
 #[derive(Deserialize)]

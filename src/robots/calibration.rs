@@ -68,11 +68,7 @@ pub fn calibrated_m100_100(position: i32, jc: &JointCalibration) -> f64 {
     let max = f64::from(jc.range_max);
     let clamped = f64::from(position).clamp(min, max);
     let norm = ((clamped - min) / (max - min)) * 200.0 - 100.0;
-    if jc.drive_mode != 0 {
-        -norm
-    } else {
-        norm
-    }
+    if jc.drive_mode != 0 { -norm } else { norm }
 }
 
 /// Apply lerobot RANGE_0_100 calibration (used for the gripper).
@@ -85,11 +81,7 @@ pub fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
     let max = f64::from(jc.range_max);
     let clamped = f64::from(position).clamp(min, max);
     let pct = (clamped - min) / (max - min) * 100.0;
-    if jc.drive_mode != 0 {
-        100.0 - pct
-    } else {
-        pct
-    }
+    if jc.drive_mode != 0 { 100.0 - pct } else { pct }
 }
 
 // ---------------------------------------------------------------------------

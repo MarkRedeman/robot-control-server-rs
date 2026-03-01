@@ -1,7 +1,7 @@
 use poem_openapi::payload::Json;
 use poem_openapi::{Object, OpenApi};
 
-use crate::cameras::{get_supported_formats, list_cameras, CameraInfo, CameraResolution};
+use crate::cameras::{CameraInfo, CameraResolution, get_supported_formats, list_cameras};
 
 #[derive(serde::Serialize, Object)]
 

@@ -1,5 +1,5 @@
-use crate::robots::client::Joint;
 use crate::robots::ArmState;
+use crate::robots::client::Joint;
 use comfy_table::modifiers::UTF8_ROUND_CORNERS;
 use comfy_table::presets::UTF8_FULL;
 use comfy_table::{Cell, ContentArrangement, Table};

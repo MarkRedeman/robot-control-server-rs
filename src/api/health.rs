@@ -1,5 +1,5 @@
 use poem::web::Data;
-use poem_openapi::{payload::Json, Object, OpenApi};
+use poem_openapi::{Object, OpenApi, payload::Json};
 use serde::Serialize;
 
 use crate::state::AppState;

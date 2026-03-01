@@ -6,7 +6,7 @@ use super::calibration;
 use super::client::{ArmState, Joint, JointState, RobotClient};
 
 // Re-export calibration types so existing `use feetech::{load_calibration, ArmCalibration}` still works.
-pub use super::calibration::{load_calibration, ArmCalibration};
+pub use super::calibration::{ArmCalibration, load_calibration};
 
 pub struct FeetechRobotClient {
     #[allow(dead_code)]

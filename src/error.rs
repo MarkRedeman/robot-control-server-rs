@@ -1,4 +1,4 @@
-use poem_openapi::{payload::Json, ApiResponse, Object};
+use poem_openapi::{ApiResponse, Object, payload::Json};
 
 #[derive(Object, Debug)]
 pub struct ErrorPayload {

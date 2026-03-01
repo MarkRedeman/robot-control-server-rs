@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use poem::web::Data;
 use poem_openapi::{
+    Object, OpenApi,
     param::{Path, Query},
     payload::Json,
-    Object, OpenApi,
 };
 use serde::{Deserialize, Serialize};
 

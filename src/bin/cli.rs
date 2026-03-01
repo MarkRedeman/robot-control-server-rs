@@ -1,8 +1,8 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use clap::Parser;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use robot_control_server::cli::display;
@@ -10,8 +10,8 @@ use robot_control_server::robots::feetech;
 use robot_control_server::robots::feetech::ArmCalibration;
 use robot_control_server::robots::serial;
 use robot_control_server::robots::{
-    spawn_worker, ArmState, FeetechRobotClient, RobotCommand, RobotResponse, RobotWorkerConfig,
-    RobotWorkerHandle,
+    ArmState, FeetechRobotClient, RobotCommand, RobotResponse, RobotWorkerConfig,
+    RobotWorkerHandle, spawn_worker,
 };
 
 /// Read the state of one or more SO101 robotic arms (6x Feetech STS3215 servos each).

@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Settings;
 use crate::robots::{
-    load_calibration, spawn_worker, ArmCalibration, FeetechRobotClient, RobotWorkerConfig,
-    RobotWorkerHandle,
+    ArmCalibration, FeetechRobotClient, RobotWorkerConfig, RobotWorkerHandle, load_calibration,
+    spawn_worker,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Object)]

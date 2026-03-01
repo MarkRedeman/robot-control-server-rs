@@ -6,6 +6,6 @@ pub mod serial;
 pub mod worker;
 
 pub use client::{ArmState, RobotClient};
-pub use commands::{handle_command, parse_command, RobotCommand, RobotResponse};
-pub use feetech::{load_calibration, ArmCalibration, FeetechRobotClient};
-pub use worker::{spawn_worker, RobotWorkerConfig, RobotWorkerHandle};
+pub use commands::{RobotCommand, RobotResponse, handle_command, parse_command};
+pub use feetech::{ArmCalibration, FeetechRobotClient, load_calibration};
+pub use worker::{RobotWorkerConfig, RobotWorkerHandle, spawn_worker};

@@ -1,18 +1,17 @@
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use poem::{
-    handler,
+    IntoResponse, Response, handler,
     web::{
-        websocket::{Message, WebSocket, WebSocketStream},
         Query,
+        websocket::{Message, WebSocket, WebSocketStream},
     },
-    IntoResponse, Response,
 };
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
-use crate::cameras::commands::{handle_camera_command, parse_camera_command, CameraCommand};
-use crate::cameras::{types::CameraConfig, CameraStatusMessage, CameraWorker};
+use crate::cameras::commands::{CameraCommand, handle_camera_command, parse_camera_command};
+use crate::cameras::{CameraStatusMessage, CameraWorker, types::CameraConfig};
 
 #[derive(Deserialize)]
 pub struct CameraQuery {
