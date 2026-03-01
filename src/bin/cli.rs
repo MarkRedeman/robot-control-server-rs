@@ -2,14 +2,17 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use robot_control_server::cli::display;
 use robot_control_server::robots::feetech;
 use robot_control_server::robots::feetech::ArmCalibration;
 use robot_control_server::robots::serial;
-use robot_control_server::robots::{ArmState, FeetechRobotClient, RobotClient};
+use robot_control_server::robots::{
+    spawn_worker, ArmState, FeetechRobotClient, RobotCommand, RobotResponse, RobotWorkerConfig,
+    RobotWorkerHandle,
+};
 
 /// Read the state of one or more SO101 robotic arms (6x Feetech STS3215 servos each).
 #[derive(Parser, Debug)]
@@ -86,17 +89,10 @@ fn load_calibrations(paths: &[PathBuf], num_robots: usize) -> Result<Vec<Option<
     Ok(result)
 }
 
-/// A named controller for a single robot arm.
+/// A named robot worker.
 struct Robot {
     label: String,
-    client: FeetechRobotClient,
-}
-
-/// Latest reading from a robot reader thread.
-struct RobotSnapshot {
-    label: String,
-    state: Option<ArmState>,
-    error: Option<String>,
+    handle: RobotWorkerHandle,
 }
 
 fn main() -> Result<()> {
@@ -108,6 +104,13 @@ fn main() -> Result<()> {
     // positionally to a robot port.
     let calibrations = load_calibrations(&cli.calibration, port_paths.len())?;
 
+    // Convert --interval to fps for the worker config.
+    let fps = if cli.interval > 0 {
+        (1000 / cli.interval).clamp(1, 240) as u32
+    } else {
+        240 // max throughput
+    };
+
     let mut robots = Vec::with_capacity(port_paths.len());
     for (idx, port_path) in port_paths.iter().enumerate() {
         eprintln!(
@@ -117,42 +120,69 @@ fn main() -> Result<()> {
 
         let calibration = calibrations.get(idx).cloned().flatten();
 
-        let client = FeetechRobotClient::new(
-            port_path.clone(),
-            port_path.clone(),
-            cli.baudrate,
-            calibration,
-        )
-        .with_context(|| {
-            format!(
-                "Failed to open serial port '{port_path}'.\n\
-                 Hint: check permissions (you may need to add your user to the 'dialout' group \
-                 or run with sudo)."
+        let client = Arc::new(
+            FeetechRobotClient::new(
+                port_path.clone(),
+                port_path.clone(),
+                cli.baudrate,
+                calibration,
             )
-        })?;
+            .with_context(|| {
+                format!(
+                    "Failed to open serial port '{port_path}'.\n\
+                     Hint: check permissions (you may need to add your user to the 'dialout' group \
+                     or run with sudo)."
+                )
+            })?,
+        );
+
+        let handle = spawn_worker(client, RobotWorkerConfig { fps });
 
         robots.push(Robot {
             label: port_path.clone(),
-            client,
+            handle,
         });
     }
 
     if cli.watch {
         run_watch_mode(robots, cli.interval)
     } else {
-        run_oneshot(&mut robots)
+        run_oneshot(&robots)
     }
 }
 
-fn run_oneshot(robots: &mut [Robot]) -> Result<()> {
-    for robot in robots.iter_mut() {
-        let state = robot.client.read_state()?;
-        println!("{}", display::format_arm_state(&robot.label, &state));
+fn run_oneshot(robots: &[Robot]) -> Result<()> {
+    for robot in robots {
+        let response = robot
+            .handle
+            .send_command_blocking(RobotCommand::ReadState)
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        match response {
+            RobotResponse::State { state } => {
+                println!("{}", display::format_arm_state(&robot.label, &state));
+            }
+            RobotResponse::Error { error, message } => {
+                bail!(
+                    "read_state failed for {}: {}: {}",
+                    robot.label,
+                    error,
+                    message
+                );
+            }
+            other => {
+                bail!(
+                    "Unexpected response from worker for {}: {:?}",
+                    robot.label,
+                    other
+                );
+            }
+        }
     }
     Ok(())
 }
 
-fn run_watch_mode(robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
+fn run_watch_mode(mut robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
@@ -165,41 +195,17 @@ fn run_watch_mode(robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
     let num_robots = robots.len();
     eprintln!("Watching arm state (press Ctrl-C to stop)...\n");
 
-    // Shared slots for each robot's latest reading. Each reader thread
-    // continuously updates its own slot; the display thread reads them all.
-    let snapshots: Vec<Arc<Mutex<RobotSnapshot>>> = robots
-        .iter()
-        .map(|robot| {
-            Arc::new(Mutex::new(RobotSnapshot {
-                label: robot.label.clone(),
-                state: None,
-                error: None,
-            }))
-        })
-        .collect();
+    // Take the state receivers from each worker handle.
+    let mut state_receivers: Vec<(String, tokio::sync::mpsc::Receiver<ArmState>)> = Vec::new();
+    let mut latest_states: Vec<Option<ArmState>> = Vec::new();
 
-    // Spawn a dedicated reader thread per robot.
-    let mut handles = Vec::new();
-    for (robot, snapshot) in robots.into_iter().zip(snapshots.iter().cloned()) {
-        let running = running.clone();
-        let handle = std::thread::Builder::new()
-            .name(format!("reader-{}", robot.label))
-            .spawn(move || {
-                while running.load(Ordering::SeqCst) {
-                    match robot.client.read_state() {
-                        Ok(state) => {
-                            let mut snap = snapshot.lock().unwrap();
-                            snap.state = Some(state);
-                            snap.error = None;
-                        }
-                        Err(e) => {
-                            let mut snap = snapshot.lock().unwrap();
-                            snap.error = Some(format!("{e:#}"));
-                        }
-                    }
-                }
-            })?;
-        handles.push(handle);
+    for robot in &mut robots {
+        let rx = robot
+            .handle
+            .take_state_rx()
+            .expect("state_rx should be available");
+        state_receivers.push((robot.label.clone(), rx));
+        latest_states.push(None);
     }
 
     // Display loop on the main thread.
@@ -220,19 +226,23 @@ fn run_watch_mode(robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
         }
         last_tick = loop_start;
 
+        // Drain all available state updates from each receiver.
+        for (i, (_label, rx)) in state_receivers.iter_mut().enumerate() {
+            // Keep draining — we only care about the latest state.
+            while let Ok(state) = rx.try_recv() {
+                latest_states[i] = Some(state);
+            }
+        }
+
         // Move cursor to top-left without clearing — content is overwritten
         // in-place to avoid the full-screen flash that causes flicker.
         print!("\x1B[H");
 
         let mut had_success = false;
-        for snapshot in &snapshots {
-            let snap = snapshot.lock().unwrap();
-            if let Some(ref state) = snap.state {
-                println!("{}", display::format_arm_state(&snap.label, state));
+        for (i, (label, _rx)) in state_receivers.iter().enumerate() {
+            if let Some(ref state) = latest_states[i] {
+                println!("{}", display::format_arm_state(label, state));
                 had_success = true;
-            }
-            if let Some(ref err) = snap.error {
-                eprintln!("[{}] Read error: {err}", snap.label);
             }
         }
 
@@ -256,9 +266,9 @@ fn run_watch_mode(robots: Vec<Robot>, interval_ms: u64) -> Result<()> {
         }
     }
 
-    // Wait for reader threads to finish.
-    for handle in handles {
-        let _ = handle.join();
+    // Request workers to stop.
+    for robot in &robots {
+        robot.handle.request_stop();
     }
 
     eprintln!("\nStopped.");

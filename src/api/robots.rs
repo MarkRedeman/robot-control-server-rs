@@ -9,7 +9,7 @@ use poem_openapi::{
 use serde::{Deserialize, Serialize};
 
 use crate::error::AppError;
-use crate::robots::{handle_command, RobotCommand};
+use crate::robots::{RobotCommand, RobotResponse};
 use crate::state::{AppState, RobotInfo};
 
 #[derive(Serialize, Object)]
@@ -65,44 +65,44 @@ impl RobotsApi {
             .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
+        let handle = state
+            .get_robot_handle(&serial_id.0)
+            .map_err(AppError::robot_not_found)?;
+
         tracing::info!("API: robot created/retrieved, reading state");
 
-        let state_data = tokio::task::spawn_blocking({
-            let state = state.0.clone();
-            let serial_id = serial_id.0.clone();
-            move || state.get_robot_state(&serial_id)
-        })
-        .await
-        .map_err(|e| AppError::internal("task_error", e.to_string()))?
-        .map_err(AppError::robot_not_found)?;
+        let response = handle
+            .send_command(RobotCommand::ReadState)
+            .await
+            .map_err(|e| AppError::internal("worker_error", e))?;
 
-        let flat_state = state_data.to_flat_state(normalize.0);
+        let arm_state = match response {
+            RobotResponse::State { state: s } => s,
+            RobotResponse::Error { error, message } => {
+                return Err(AppError::internal(&error, message));
+            }
+            other => {
+                return Err(AppError::internal(
+                    "unexpected_response",
+                    format!("Unexpected response: {:?}", other),
+                ));
+            }
+        };
+
+        let flat_state = arm_state.to_flat_state(normalize.0);
 
         tracing::info!("API: state read successfully");
 
-        // Obtain use count and port from state
-        let (port, use_count, is_connected) = {
-            if let Ok(robots) = state.robots.lock() {
-                if let Some(entry) = robots.get(&serial_id.0) {
-                    (
-                        entry.client.port().to_string(),
-                        1,
-                        entry.client.is_connected(),
-                    )
-                } else {
-                    ("unknown".to_string(), 0, false)
-                }
-            } else {
-                ("unknown".to_string(), 0, false)
-            }
-        };
+        let (port, is_connected) = state
+            .get_robot_info(&serial_id.0)
+            .unwrap_or_else(|| ("unknown".to_string(), false));
 
         Ok(Json(RobotStateResponse {
             serial_id: serial_id.0,
             port,
             is_connected,
             is_controlled: true, // TODO: proper state tracking
-            use_count,
+            use_count: 1,
             state: flat_state,
         }))
     }
@@ -118,18 +118,31 @@ impl RobotsApi {
             .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
-        let state_data = tokio::task::spawn_blocking({
-            let state = state.0.clone();
-            let serial_id = serial_id.0.clone();
-            move || state.get_robot_state(&serial_id)
-        })
-        .await
-        .map_err(|e| AppError::internal("task_error", e.to_string()))?
-        .map_err(AppError::robot_not_found)?;
+        let handle = state
+            .get_robot_handle(&serial_id.0)
+            .map_err(AppError::robot_not_found)?;
+
+        let response = handle
+            .send_command(RobotCommand::ReadState)
+            .await
+            .map_err(|e| AppError::internal("worker_error", e))?;
+
+        let arm_state = match response {
+            RobotResponse::State { state: s } => s,
+            RobotResponse::Error { error, message } => {
+                return Err(AppError::internal(&error, message));
+            }
+            other => {
+                return Err(AppError::internal(
+                    "unexpected_response",
+                    format!("Unexpected response: {:?}", other),
+                ));
+            }
+        };
 
         Ok(Json(RobotFullStateResponse {
             serial_id: serial_id.0,
-            state: state_data,
+            state: arm_state,
         }))
     }
 
@@ -145,33 +158,24 @@ impl RobotsApi {
             .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
-        let client = {
-            let robots = state.robots.lock().map_err(|_| {
-                AppError::robot_not_found_with_code("lock_error", "lock error".to_string())
-            })?;
-            let entry = robots
-                .get(&serial_id.0)
-                .ok_or_else(|| AppError::robot_not_found(serial_id.0.clone()))?;
-            entry.client.clone()
-        };
+        let handle = state
+            .get_robot_handle(&serial_id.0)
+            .map_err(AppError::robot_not_found)?;
 
         let cmd = RobotCommand::SetJointsState {
             joints: req.0.joints,
         };
-        let response = tokio::task::spawn_blocking(move || {
-            handle_command(client.as_ref(), cmd)
-        })
-        .await
-        .map_err(|e| AppError::internal("task_error", e.to_string()))?;
 
-        match response {
-            crate::robots::RobotResponse::Error { error, message } => {
-                return Ok(Json(CommandResponse {
-                    success: false,
-                    message: format!("{}: {}", error, message),
-                }));
-            }
-            _ => {}
+        let response = handle
+            .send_command(cmd)
+            .await
+            .map_err(|e| AppError::internal("worker_error", e))?;
+
+        if let RobotResponse::Error { error, message } = response {
+            return Ok(Json(CommandResponse {
+                success: false,
+                message: format!("{}: {}", error, message),
+            }));
         }
 
         Ok(Json(CommandResponse {

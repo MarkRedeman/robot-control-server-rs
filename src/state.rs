@@ -5,7 +5,10 @@ use poem_openapi::Object;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Settings;
-use crate::robots::{load_calibration, ArmCalibration, ArmState, FeetechRobotClient, RobotClient};
+use crate::robots::{
+    load_calibration, spawn_worker, ArmCalibration, FeetechRobotClient, RobotWorkerConfig,
+    RobotWorkerHandle,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Object)]
 pub struct RobotClientInfo {
@@ -23,8 +26,10 @@ pub struct RobotInfo {
 }
 
 pub struct RobotEntry {
-    pub client: Arc<dyn RobotClient>,
-    /// Which calibration_id was used when this client was created.
+    pub handle: RobotWorkerHandle,
+    /// The serial port path this robot is using.
+    pub port: String,
+    /// Which calibration_id was used when this worker was created.
     /// `None` means the server's default calibration was used.
     pub calibration_id: Option<String>,
 }
@@ -49,13 +54,13 @@ impl AppState {
         }
     }
 
-    /// Ensure a robot client exists for `serial_id`.
+    /// Ensure a robot worker exists for `serial_id`.
     ///
     /// When `calibration_id` is `Some`, the calibration file
     /// `calibration/{calibration_id}.json` (relative to the repo root) is
     /// loaded and used instead of the server's default calibration.  If a
     /// robot already exists but was created with a *different*
-    /// `calibration_id`, the old client is dropped and a new one is created.
+    /// `calibration_id`, the old worker is stopped and a new one is spawned.
     pub fn get_or_create_robot(
         &self,
         serial_id: &str,
@@ -81,6 +86,8 @@ impl AppState {
                 entry.calibration_id,
                 calibration_id
             );
+            // Stop the old worker before removing.
+            entry.handle.request_stop();
             robots.remove(serial_id);
         }
 
@@ -97,26 +104,53 @@ impl AppState {
             tracing::warn!("No port found for serial_id={}", serial_id);
         }
 
+        let port_path = port.unwrap_or_else(|| serial_id.to_string());
+
         let client = Arc::new(
             FeetechRobotClient::new(
                 serial_id.to_string(),
-                port.unwrap_or_else(|| serial_id.to_string()),
+                port_path.clone(),
                 self.settings.baud_rate,
                 calibration,
             )
             .map_err(|e| e.to_string())?,
-        ) as Arc<dyn RobotClient>;
+        );
+
+        let handle = spawn_worker(
+            client,
+            RobotWorkerConfig {
+                fps: self.settings.default_fps,
+            },
+        );
 
         robots.insert(
             serial_id.to_string(),
             RobotEntry {
-                client,
+                handle,
+                port: port_path,
                 calibration_id: calibration_id.map(String::from),
             },
         );
 
-        tracing::info!("Created robot entry for serial_id={}", serial_id);
+        tracing::info!("Created robot worker for serial_id={}", serial_id);
         Ok(())
+    }
+
+    /// Get a clone of the [`RobotWorkerHandle`] for the given `serial_id`.
+    pub fn get_robot_handle(&self, serial_id: &str) -> Result<RobotWorkerHandle, String> {
+        let robots = self.robots.lock().map_err(|e| e.to_string())?;
+        robots
+            .get(serial_id)
+            .map(|entry| entry.handle.clone())
+            .ok_or_else(|| format!("Robot not found: {}", serial_id))
+    }
+
+    /// Get the port and running status for a robot entry.
+    pub fn get_robot_info(&self, serial_id: &str) -> Option<(String, bool)> {
+        let robots = self.robots.lock().ok()?;
+        robots
+            .get(serial_id)
+            .map(|entry| (entry.port.clone(), entry.handle.is_running()))
     }
 
     /// Resolve calibration data: use `calibration_id` file if provided,
@@ -212,22 +246,5 @@ impl AppState {
         }
 
         robots
-    }
-
-    pub fn get_robot_state(&self, serial_id: &str) -> Result<ArmState, String> {
-        tracing::info!("get_robot_state: serial_id={}", serial_id);
-
-        let robots = self.robots.lock().map_err(|e| e.to_string())?;
-
-        let entry = robots.get(serial_id).ok_or_else(|| {
-            tracing::error!("Robot not found in pool: {}", serial_id);
-            format!("Robot not found: {}", serial_id)
-        })?;
-
-        tracing::info!("Found robot entry, calling read_state");
-        entry.client.read_state().map_err(|e| {
-            tracing::error!("read_state failed: {}", e);
-            e.to_string()
-        })
     }
 }

@@ -2,12 +2,13 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::client::RobotClient;
+use super::client::{ArmState, RobotClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum RobotCommand {
     Ping,
+    ReadState,
     EnableTorque,
     DisableTorque,
     SetJointsState {
@@ -33,6 +34,10 @@ pub enum RobotResponse {
         state: HashMap<String, f64>,
         is_controlled: bool,
     },
+    /// Full arm state returned by a `ReadState` command.
+    State {
+        state: ArmState,
+    },
     Error {
         error: String,
         message: String,
@@ -52,6 +57,14 @@ pub fn handle_command<Robot: RobotClient + ?Sized>(
 ) -> RobotResponse {
     match cmd {
         RobotCommand::Ping => RobotResponse::Pong,
+
+        RobotCommand::ReadState => match robot.read_state() {
+            Ok(state) => RobotResponse::State { state },
+            Err(e) => RobotResponse::Error {
+                error: "read_state_failed".to_string(),
+                message: e.to_string(),
+            },
+        },
 
         RobotCommand::EnableTorque => match robot.enable_torque() {
             Ok(_) => RobotResponse::TorqueWasEnabled,

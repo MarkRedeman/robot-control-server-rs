@@ -2130,7 +2130,6 @@ dependencies = [
  "serialport",
  "thiserror",
  "tokio",
- "tokio-util",
  "tracing",
  "tracing-subscriber",
 ]

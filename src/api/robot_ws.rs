@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use futures_util::sink::SinkExt;
 use futures_util::stream::StreamExt;
 use poem::{
@@ -12,10 +10,8 @@ use poem::{
 };
 use serde::Deserialize;
 use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
-use tokio_util::sync::CancellationToken;
 
-use crate::robots::{handle_command, parse_command, RobotClient, RobotResponse};
+use crate::robots::{parse_command, RobotResponse, RobotWorkerHandle};
 use crate::state::AppState;
 
 #[derive(Deserialize)]
@@ -33,7 +29,6 @@ pub async fn robot_ws(
     Path(serial_id): Path<String>,
     Query(query): Query<WsQuery>,
 ) -> Response {
-    let fps_val = query.fps.unwrap_or(30).clamp(1, 240);
     let normalize = query.normalize.unwrap_or(true);
 
     if let Err(e) = state.get_or_create_robot(&serial_id, query.calibration_id.as_deref()) {
@@ -41,60 +36,63 @@ pub async fn robot_ws(
         return poem::http::StatusCode::NOT_FOUND.into_response();
     }
 
-    let client = {
-        match state.robots.lock() {
-            Ok(robots) => match robots.get(&serial_id) {
-                Some(entry) => entry.client.clone(),
-                None => return poem::http::StatusCode::NOT_FOUND.into_response(),
-            },
-            Err(_) => return poem::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        }
+    let handle = match state.get_robot_handle(&serial_id) {
+        Ok(h) => h,
+        Err(_) => return poem::http::StatusCode::NOT_FOUND.into_response(),
     };
 
-    ws.on_upgrade(move |socket| {
-        handle_socket(socket, serial_id, client, fps_val, normalize)
-    })
-    .into_response()
+    ws.on_upgrade(move |socket| handle_socket(socket, serial_id, handle, normalize))
+        .into_response()
 }
 
 /// Manages the WebSocket session for a single robot.
 ///
 /// Architecture:
 ///   - **Writer task** — owns the sink half of the socket and drains an mpsc
-///     channel, sending each message to the client. Stops when the channel
-///     closes or the sink errors.
-///   - **Poller task** — reads servo state on a fixed interval and pushes
-///     JSON-encoded `StateWasUpdated` messages into the channel. Cancelled
-///     via a `CancellationToken` when the command loop exits.
+///     channel, sending each message to the client.
+///   - **State forwarder task** — takes polled `ArmState` snapshots from the
+///     worker's `state_rx` channel, converts them to `StateWasUpdated` JSON,
+///     and pushes them into the writer channel.
 ///   - **Command loop** (this function) — reads the stream half. Incoming
-///     text messages are parsed as `RobotCommand`s, executed, and the
-///     response is pushed into the same channel. On client disconnect the
-///     loop breaks, the token is cancelled, and the channel is dropped.
+///     text messages are parsed as `RobotCommand`s, sent to the worker via
+///     `send_command()`, and the response is pushed into the writer channel.
 async fn handle_socket(
     socket: WebSocketStream,
     serial_id: String,
-    client: Arc<dyn RobotClient>,
-    fps: u32,
+    handle: RobotWorkerHandle,
     normalize: bool,
 ) {
-    let token = CancellationToken::new();
     let (sink, mut stream) = socket.split();
     let (tx, rx) = mpsc::channel::<String>(100);
 
     // --- Writer task: channel → sink ---
     let writer_handle = tokio::spawn(write_loop(sink, rx));
 
-    // --- Poller task: servo → channel ---
-    let poller_handle = tokio::spawn(poll_loop(
-        client.clone(),
-        tx.clone(),
-        token.clone(),
-        serial_id.clone(),
-        fps,
-        normalize,
-    ));
+    // --- State forwarder task: worker state_rx → channel ---
+    let state_forwarder = if let Some(mut state_rx) = handle.take_state_rx() {
+        let tx_state = tx.clone();
+        Some(tokio::spawn(async move {
+            while let Some(state) = state_rx.recv().await {
+                let response = RobotResponse::StateWasUpdated {
+                    timestamp: state.timestamp,
+                    state: state.to_flat_state(normalize),
+                    is_controlled: true, // TODO: track actual torque state
+                };
+                let json = serde_json::to_string(&response).unwrap_or_default();
+                if tx_state.send(json).await.is_err() {
+                    break;
+                }
+            }
+        }))
+    } else {
+        tracing::warn!(
+            "state_rx already taken for robot {} — no state polling for this WS session",
+            serial_id
+        );
+        None
+    };
 
-    // --- Command loop: stream → handle → channel ---
+    // --- Command loop: stream → worker → channel ---
     while let Some(msg) = stream.next().await {
         match msg {
             Ok(Message::Text(text)) => {
@@ -113,15 +111,13 @@ async fn handle_socket(
                     }
                 };
 
-                let response = tokio::task::spawn_blocking({
-                    let client = client.clone();
-                    move || handle_command(client.as_ref(), cmd)
-                })
-                .await
-                .unwrap_or_else(|e| RobotResponse::Error {
-                    error: "task_error".to_string(),
-                    message: e.to_string(),
-                });
+                let response = match handle.send_command(cmd).await {
+                    Ok(resp) => resp,
+                    Err(e) => RobotResponse::Error {
+                        error: "worker_error".to_string(),
+                        message: e,
+                    },
+                };
 
                 let json = serde_json::to_string(&response).unwrap_or_default();
                 if tx.send(json).await.is_err() {
@@ -134,9 +130,11 @@ async fn handle_socket(
     }
 
     // Client disconnected — shut everything down.
-    token.cancel();
     drop(tx);
-    let _ = poller_handle.await;
+    if let Some(forwarder) = state_forwarder {
+        forwarder.abort();
+        let _ = forwarder.await;
+    }
     let _ = writer_handle.await;
 
     tracing::info!("WebSocket session closed for robot {}", serial_id);
@@ -153,47 +151,4 @@ async fn write_loop(
         }
     }
     let _ = sink.close().await;
-}
-
-/// Reads servo state on a fixed interval and pushes updates into the channel.
-async fn poll_loop(
-    client: Arc<dyn RobotClient>,
-    tx: mpsc::Sender<String>,
-    token: CancellationToken,
-    serial_id: String,
-    fps: u32,
-    normalize: bool,
-) {
-    let mut tick = interval(Duration::from_millis(1000 / u64::from(fps)));
-
-    loop {
-        tokio::select! {
-            _ = token.cancelled() => break,
-            _ = tick.tick() => {}
-        }
-
-        let result = tokio::task::spawn_blocking({
-            let client = client.clone();
-            move || client.read_state()
-        })
-        .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task error: {}", e)));
-
-        match result {
-            Ok(state) => {
-                let response = RobotResponse::StateWasUpdated {
-                    timestamp: state.timestamp,
-                    state: state.to_flat_state(normalize),
-                    is_controlled: true, // TODO: track actual torque state
-                };
-                let json = serde_json::to_string(&response).unwrap_or_default();
-                if tx.send(json).await.is_err() {
-                    break;
-                }
-            }
-            Err(e) => {
-                tracing::warn!("read_state failed for {}: {}", serial_id, e);
-            }
-        }
-    }
 }
