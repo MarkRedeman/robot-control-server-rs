@@ -1,3 +1,4 @@
+pub mod calibration;
 pub mod client;
 pub mod commands;
 pub mod feetech;

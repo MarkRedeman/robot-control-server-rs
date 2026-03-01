@@ -1,10 +1,10 @@
 use anyhow::{Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
 /// Per-joint calibration data from a lerobot calibration JSON file.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct JointCalibration {
     pub id: u8,
     pub drive_mode: u8,
@@ -38,29 +38,46 @@ pub fn by_motor_id(cal: &ArmCalibration) -> HashMap<u8, &JointCalibration> {
     cal.values().map(|jc| (jc.id, jc)).collect()
 }
 
-/// Apply lerobot DEGREES-mode calibration to a decoded present_position value.
+/// Apply lerobot DEGREES-mode calibration.
 ///
 /// The servo firmware has already applied the homing_offset, so the value
-/// read from the bus is the "homed" position. The formula (matching lerobot's
-/// `MotorNormMode.DEGREES`) is:
+/// read from the bus is the "homed" position.
 ///
 ///   mid = (range_min + range_max) / 2
 ///   degrees = (position - mid) * 360 / 4095
 ///
-/// For the gripper joint (id 6), lerobot uses `RANGE_0_100` mode:
-///
-///   clamped = clamp(position, range_min, range_max)
-///   pct = (clamped - range_min) / (range_max - range_min) * 100
-///   result = (100 - pct) if drive_mode else pct
-///
-/// `drive_mode` is ignored for DEGREES mode (all SO-101 arms use drive_mode=0
-/// anyway).
+/// Note: DEGREES mode does NOT clamp and does NOT apply drive_mode
+/// (matches lerobot's `_normalize` for `MotorNormMode.DEGREES`).
 pub fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
     let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
     (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
 }
 
+/// Apply lerobot RANGE_M100_100 calibration (default for SO-101 non-gripper joints).
+///
+/// When `use_degrees` is false (the lerobot default), non-gripper joints
+/// use this mode instead of DEGREES.
+///
+///   clamped = clamp(position, range_min, range_max)
+///   norm = ((clamped - min) / (max - min)) * 200 - 100
+///   result = -norm if drive_mode else norm
+pub fn calibrated_m100_100(position: i32, jc: &JointCalibration) -> f64 {
+    let min = f64::from(jc.range_min);
+    let max = f64::from(jc.range_max);
+    let clamped = f64::from(position).clamp(min, max);
+    let norm = ((clamped - min) / (max - min)) * 200.0 - 100.0;
+    if jc.drive_mode != 0 {
+        -norm
+    } else {
+        norm
+    }
+}
+
 /// Apply lerobot RANGE_0_100 calibration (used for the gripper).
+///
+///   clamped = clamp(position, range_min, range_max)
+///   pct = ((clamped - min) / (max - min)) * 100
+///   result = (100 - pct) if drive_mode else pct
 pub fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
     let min = f64::from(jc.range_min);
     let max = f64::from(jc.range_max);

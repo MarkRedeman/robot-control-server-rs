@@ -1,54 +1,12 @@
 use std::collections::HashMap;
 
 use rustypot::servo::feetech::sts3215::Sts3215Controller;
-use serde::{Deserialize, Serialize};
 
+use super::calibration;
 use super::client::{ArmState, Joint, JointState, RobotClient};
 
-const MAX_RESOLUTION: f64 = 4095.0;
-
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct JointCalibration {
-    pub id: u8,
-    pub drive_mode: u8,
-    pub homing_offset: i32,
-    pub range_min: i32,
-    pub range_max: i32,
-}
-
-pub type ArmCalibration = HashMap<String, JointCalibration>;
-
-pub fn load_calibration(path: &std::path::Path) -> Result<ArmCalibration, anyhow::Error> {
-    let contents = std::fs::read_to_string(path)?;
-    let cal: ArmCalibration = serde_json::from_str(&contents)?;
-    Ok(cal)
-}
-
-fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
-    let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
-    (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
-}
-
-fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
-    let min = f64::from(jc.range_min);
-    let max = f64::from(jc.range_max);
-    let clamped = f64::from(position).clamp(min, max);
-    let pct = (clamped - min) / (max - min) * 100.0;
-    if jc.drive_mode != 0 {
-        100.0 - pct
-    } else {
-        pct
-    }
-}
-
-fn decode_sign_magnitude(raw: u16) -> i32 {
-    let magnitude = (raw & 0x7FFF) as i32;
-    if raw & 0x8000 != 0 {
-        -magnitude
-    } else {
-        magnitude
-    }
-}
+// Re-export calibration types so existing `use feetech::{load_calibration, ArmCalibration}` still works.
+pub use super::calibration::{load_calibration, ArmCalibration};
 
 pub struct FeetechRobotClient {
     #[allow(dead_code)]
@@ -109,9 +67,11 @@ impl FeetechRobotClient {
             .enumerate()
             .map(|(i, &joint)| {
                 let raw_position = raw_data[i];
-                let raw_u16 = raw_position as u16;
 
-                let decoded_position = decode_sign_magnitude(raw_u16);
+                // The servo returns i16 via two's-complement (from_le_bytes).
+                // For typical positions (0..4095) this matches lerobot's
+                // sign-magnitude decode. Widen to i32 for the calibration math.
+                let decoded_position = i32::from(raw_position);
 
                 let calibrated_angle = self
                     .calibration
@@ -119,9 +79,12 @@ impl FeetechRobotClient {
                     .and_then(|cal| cal.get(joint.name()))
                     .map(|jc| {
                         if joint == Joint::Gripper {
-                            calibrated_percentage(decoded_position, jc)
+                            // Gripper uses RANGE_0_100 in lerobot.
+                            calibration::calibrated_percentage(decoded_position, jc)
                         } else {
-                            calibrated_degrees(decoded_position, jc)
+                            // Non-gripper joints use RANGE_M100_100 by default in lerobot
+                            // (when use_degrees=false, which is the default).
+                            calibration::calibrated_m100_100(decoded_position, jc)
                         }
                     });
 
