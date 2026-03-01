@@ -1,0 +1,11 @@
+# Allow list approach: exclude everything first, then re-include what's needed
+*
+
+# Re-include server directory and its contents
+!src/
+!Cargo.lock
+!Cargo.toml
+
+# Re-include Docker files
+!Dockerfile
+!docker-compose.yaml
