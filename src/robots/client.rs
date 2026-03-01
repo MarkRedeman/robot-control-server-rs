@@ -1,6 +1,7 @@
+use poem_openapi::{Enum, Object};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Enum)]
 pub enum Joint {
     Base,
     Shoulder,
@@ -43,7 +44,7 @@ impl Joint {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Object)]
 pub struct JointState {
     pub joint: String,
     pub motor_id: u8,
@@ -57,7 +58,7 @@ pub struct JointState {
     pub calibrated_angle: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Object)]
 pub struct ArmState {
     pub timestamp: String,
     pub joints: Vec<JointState>,

@@ -4,6 +4,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use robot_control_server::api;
 use robot_control_server::config::Settings;
+use robot_control_server::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,8 +19,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting robot control server on {}", settings.address());
 
+    let state = AppState::new(settings.clone());
+
     let api_service = OpenApiService::new(
-        api::HealthApi,
+        (api::HealthApi, api::RobotsApi),
         "Robot Control API",
         "0.1.0",
     );
@@ -27,9 +30,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = api_service.swagger_ui();
 
     let app = Route::new()
+        .at("/api/robots/:serial_id/ws", api::robot_ws::robot_ws)
         .nest("/", api_service)
         .nest("/docs", ui)
-        .with(Tracing);
+        .with(Tracing)
+        .data(state);
 
     // let app = create_app();
 

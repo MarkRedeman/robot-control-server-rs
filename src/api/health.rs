@@ -1,5 +1,8 @@
+use poem::web::Data;
 use poem_openapi::{payload::Json, Object, OpenApi};
 use serde::Serialize;
+
+use crate::state::AppState;
 
 #[derive(Serialize, Object)]
 pub struct HealthResponse {
@@ -9,6 +12,7 @@ pub struct HealthResponse {
 #[derive(Serialize, Object)]
 pub struct ReadyResponse {
     pub status: String,
+    pub robots_connected: usize,
 }
 
 #[derive(Serialize, Object)]
@@ -36,9 +40,16 @@ impl HealthApi {
 
     /// Readiness check
     #[oai(path = "/ready", method = "get")]
-    async fn ready(&self) -> Json<ReadyResponse> {
+    async fn ready(&self, state: Data<&AppState>) -> Json<ReadyResponse> {
+        let robots = state.list_robots();
+        let connected = robots
+            .iter()
+            .filter(|r| r.client.as_ref().map(|c| c.is_connected).unwrap_or(false))
+            .count();
+
         Json(ReadyResponse {
             status: "ok".to_string(),
+            robots_connected: connected,
         })
     }
 
