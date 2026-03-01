@@ -13,6 +13,7 @@ use poem::{
 use serde::Deserialize;
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
+use tokio_util::sync::CancellationToken;
 
 use crate::robots::{handle_command, parse_command, RobotClient, RobotResponse};
 use crate::state::AppState;
@@ -56,93 +57,143 @@ pub async fn robot_ws(
     .into_response()
 }
 
+/// Manages the WebSocket session for a single robot.
+///
+/// Architecture:
+///   - **Writer task** — owns the sink half of the socket and drains an mpsc
+///     channel, sending each message to the client. Stops when the channel
+///     closes or the sink errors.
+///   - **Poller task** — reads servo state on a fixed interval and pushes
+///     JSON-encoded `StateWasUpdated` messages into the channel. Cancelled
+///     via a `CancellationToken` when the command loop exits.
+///   - **Command loop** (this function) — reads the stream half. Incoming
+///     text messages are parsed as `RobotCommand`s, executed, and the
+///     response is pushed into the same channel. On client disconnect the
+///     loop breaks, the token is cancelled, and the channel is dropped.
 async fn handle_socket(
-    mut socket: WebSocketStream,
+    socket: WebSocketStream,
     serial_id: String,
     client: Arc<dyn RobotClient>,
     fps: u32,
     normalize: bool,
 ) {
-    let (tx, mut rx) = mpsc::channel::<String>(100);
-    let read_interval = Duration::from_millis(1000 / fps as u64);
+    let token = CancellationToken::new();
+    let (sink, mut stream) = socket.split();
+    let (tx, rx) = mpsc::channel::<String>(100);
 
-    let client_read = client.clone();
-    let tx_clone = tx.clone();
-    let serial_id_clone = serial_id.clone();
+    // --- Writer task: channel → sink ---
+    let writer_handle = tokio::spawn(write_loop(sink, rx));
 
-    tokio::spawn(async move {
-        let mut tick_interval = interval(read_interval);
+    // --- Poller task: servo → channel ---
+    let poller_handle = tokio::spawn(poll_loop(
+        client.clone(),
+        tx.clone(),
+        token.clone(),
+        serial_id.clone(),
+        fps,
+        normalize,
+    ));
 
-        loop {
-            tick_interval.tick().await;
-
-            let state_result = tokio::task::spawn_blocking({
-                let client = client_read.clone();
-                move || client.read_state()
-            })
-            .await
-            .unwrap_or_else(|e| Err(anyhow::anyhow!("Task error: {}", e)));
-
-            match state_result {
-                Ok(state) => {
-                    let response = RobotResponse::StateWasUpdated {
-                        timestamp: state.timestamp,
-                        state: state.to_flat_state(normalize),
-                        is_controlled: true, // TODO: track actual torque state
-                    };
-                    let json = serde_json::to_string(&response).unwrap_or_default();
-                    if tx_clone.send(json).await.is_err() {
-                        break;
+    // --- Command loop: stream → handle → channel ---
+    while let Some(msg) = stream.next().await {
+        match msg {
+            Ok(Message::Text(text)) => {
+                let cmd = match parse_command(&text) {
+                    Ok(command) => command,
+                    Err(e) => {
+                        let resp = RobotResponse::Error {
+                            error: "parse_error".to_string(),
+                            message: e,
+                        };
+                        let json = serde_json::to_string(&resp).unwrap_or_default();
+                        if tx.send(json).await.is_err() {
+                            break;
+                        }
+                        continue;
                     }
-                }
-                Err(e) => {
-                    tracing::warn!("read_state failed for {}: {}", serial_id_clone, e);
-                }
-            }
-        }
-    });
+                };
 
-    loop {
-        tokio::select! {
-            Some(json) = rx.recv() => {
-                if socket.send(Message::Text(json)).await.is_err() {
+                let response = tokio::task::spawn_blocking({
+                    let client = client.clone();
+                    move || handle_command(client.as_ref(), cmd)
+                })
+                .await
+                .unwrap_or_else(|e| RobotResponse::Error {
+                    error: "task_error".to_string(),
+                    message: e.to_string(),
+                });
+
+                let json = serde_json::to_string(&response).unwrap_or_default();
+                if tx.send(json).await.is_err() {
                     break;
                 }
             }
-            msg = socket.next() => {
-                match msg {
-                    Some(Ok(Message::Text(text))) => {
-                        let cmd = match parse_command(&text) {
-                            Ok(command) => command,
-                            Err(e) => {
-                                let error_response = RobotResponse::Error {
-                                    error: "parse_error".to_string(),
-                                    message: e,
-                                };
-                                let json = serde_json::to_string(&error_response).unwrap_or_default();
-                                let _ = tx.send(json).await;
-                                continue;
-                            }
-                        };
-
-                        let response = tokio::task::spawn_blocking({
-                            let client = client.clone();
-                            move || handle_command(client.as_ref(), cmd)
-                        })
-                        .await
-                        .unwrap_or_else(|e| RobotResponse::Error {
-                            error: "task_error".to_string(),
-                            message: e.to_string(),
-                        });
-                        let json = serde_json::to_string(&response).unwrap_or_default();
-                        let _ = tx.send(json).await;
-                    }
-                    Some(Ok(Message::Close(_))) | None => break,
-                    _ => {}
-                }
-            }
+            Ok(Message::Close(_)) | Err(_) => break,
+            _ => {}
         }
     }
 
+    // Client disconnected — shut everything down.
+    token.cancel();
+    drop(tx);
+    let _ = poller_handle.await;
+    let _ = writer_handle.await;
+
     tracing::info!("WebSocket session closed for robot {}", serial_id);
+}
+
+/// Drains the outgoing message channel and writes each message to the sink.
+async fn write_loop(
+    mut sink: futures_util::stream::SplitSink<WebSocketStream, Message>,
+    mut rx: mpsc::Receiver<String>,
+) {
+    while let Some(json) = rx.recv().await {
+        if sink.send(Message::Text(json)).await.is_err() {
+            break;
+        }
+    }
+    let _ = sink.close().await;
+}
+
+/// Reads servo state on a fixed interval and pushes updates into the channel.
+async fn poll_loop(
+    client: Arc<dyn RobotClient>,
+    tx: mpsc::Sender<String>,
+    token: CancellationToken,
+    serial_id: String,
+    fps: u32,
+    normalize: bool,
+) {
+    let mut tick = interval(Duration::from_millis(1000 / u64::from(fps)));
+
+    loop {
+        tokio::select! {
+            _ = token.cancelled() => break,
+            _ = tick.tick() => {}
+        }
+
+        let result = tokio::task::spawn_blocking({
+            let client = client.clone();
+            move || client.read_state()
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("Task error: {}", e)));
+
+        match result {
+            Ok(state) => {
+                let response = RobotResponse::StateWasUpdated {
+                    timestamp: state.timestamp,
+                    state: state.to_flat_state(normalize),
+                    is_controlled: true, // TODO: track actual torque state
+                };
+                let json = serde_json::to_string(&response).unwrap_or_default();
+                if tx.send(json).await.is_err() {
+                    break;
+                }
+            }
+            Err(e) => {
+                tracing::warn!("read_state failed for {}: {}", serial_id, e);
+            }
+        }
+    }
 }
