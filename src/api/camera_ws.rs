@@ -11,6 +11,7 @@ use poem::{
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
+use crate::cameras::commands::{handle_camera_command, parse_camera_command, CameraCommand};
 use crate::cameras::{types::CameraConfig, CameraStatusMessage, CameraWorker};
 
 #[derive(Deserialize)]
@@ -77,25 +78,19 @@ async fn handle_camera_socket(mut socket: WebSocketStream, config: CameraConfig)
             msg = socket.next() => {
                 match msg {
                     Some(Ok(Message::Text(text))) => {
-                        if let Ok(cmd) = serde_json::from_str::<serde_json::Value>(&text) {
-                            if let Some(command) = cmd.get("command").and_then(|c| c.as_str()) {
-                                match command {
-                                    "ping" => {
-                                        let response = CameraStatusMessage::status(
-                                            crate::cameras::types::CameraStatus::Running,
-                                            Some("pong".to_string()),
-                                        );
-                                        let json = serde_json::to_string(&response).unwrap_or_default();
-                                        let _ = socket.send(Message::Text(json)).await;
-                                    }
-                                    "disconnect" => {
-                                        tracing::info!("Client requested disconnect");
-                                        break;
-                                    }
-                                    _ => {
-                                        tracing::warn!("Unknown command: {}", command);
-                                    }
+                        match parse_camera_command(&text) {
+                            Ok(cmd) => {
+                                if matches!(cmd, CameraCommand::Disconnect) {
+                                    tracing::info!("Client requested disconnect");
+                                    break;
                                 }
+                                if let Some(response) = handle_camera_command(&cmd) {
+                                    let json = serde_json::to_string(&response).unwrap_or_default();
+                                    let _ = socket.send(Message::Text(json)).await;
+                                }
+                            }
+                            Err(e) => {
+                                tracing::warn!("Invalid camera command: {}", e);
                             }
                         }
                     }
