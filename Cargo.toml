@@ -10,6 +10,9 @@ clap = { version = "4.5.60", features = ["derive"] }
 comfy-table = "7.2.2"
 ctrlc = "3.5.2"
 futures-util = "0.3.32"
+image = "0.25.9"
+nokhwa = { version = "0.10.10", features = ["input-v4l"] }
+nokhwa-core = "0.1.8"
 poem = "3.1.12"
 poem-openapi = { version = "5.1.16", features = ["swagger-ui", "websocket"] }
 rustypot = "1.4.2"

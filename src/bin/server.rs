@@ -22,7 +22,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::new(settings.clone());
 
     let api_service = OpenApiService::new(
-        (api::HealthApi, api::RobotsApi),
+        (api::HealthApi, api::RobotsApi, api::CamerasApi),
         "Robot Control API",
         "0.1.0",
     );
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let app = Route::new()
         .at("/api/robots/:serial_id/ws", api::robot_ws::robot_ws)
+        .at("/api/cameras/ws", api::camera_ws::camera_ws)
         .nest("/", api_service)
         .nest("/docs", ui)
         .with(Tracing)
