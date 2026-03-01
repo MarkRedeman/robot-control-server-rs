@@ -5,7 +5,6 @@ use serialport::SerialPortType;
 ///
 /// Enumerates all available serial ports and returns the device path
 /// of the one matching the given serial number.
-#[allow(dead_code)]
 pub fn find_port_by_serial_number(serial_number: &str) -> Result<String> {
     let ports = serialport::available_ports().context("Failed to enumerate serial ports")?;
 
@@ -45,7 +44,6 @@ pub fn find_port_by_serial_number(serial_number: &str) -> Result<String> {
 }
 
 /// List all available serial ports for diagnostics.
-#[allow(dead_code)]
 pub fn list_available_ports() -> Result<Vec<String>> {
     let ports = serialport::available_ports().context("Failed to enumerate serial ports")?;
     Ok(ports.into_iter().map(|p| p.port_name).collect())

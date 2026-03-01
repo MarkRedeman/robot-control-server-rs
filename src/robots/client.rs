@@ -64,11 +64,8 @@ pub struct ArmState {
     pub joints: Vec<JointState>,
 }
 
-#[allow(dead_code)]
 pub trait RobotClient: Send + Sync {
-    #[allow(dead_code)]
     fn port(&self) -> &str;
-    #[allow(dead_code)]
     fn is_connected(&self) -> bool;
 
     fn read_state(&self, normalize: bool) -> Result<ArmState, anyhow::Error>;
