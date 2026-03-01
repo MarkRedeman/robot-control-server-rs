@@ -53,7 +53,6 @@ fn decode_sign_magnitude(raw: u16) -> i32 {
 pub struct FeetechRobotClient {
     #[allow(dead_code)]
     serial_id: String,
-    #[allow(dead_code)]
     port: String,
     controller: std::sync::Mutex<Sts3215Controller>,
     calibration: Option<ArmCalibration>,

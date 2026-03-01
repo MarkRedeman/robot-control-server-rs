@@ -11,14 +11,12 @@ pub struct Settings {
     #[serde(default = "default_port")]
     pub port: u16,
 
-    #[allow(dead_code)]
     #[serde(default = "default_log_level")]
     pub log_level: String,
 
     #[serde(default = "default_calibration_path")]
     pub calibration_path: PathBuf,
 
-    #[allow(dead_code)]
     #[serde(default = "default_fps")]
     pub default_fps: u32,
 

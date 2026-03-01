@@ -35,7 +35,6 @@ pub struct RobotEntry {
 
 #[derive(Clone)]
 pub struct AppState {
-    #[allow(dead_code)]
     pub settings: Settings,
     pub robots: Arc<Mutex<HashMap<String, RobotEntry>>>,
     pub calibration: Option<serde_json::Value>,
