@@ -13,10 +13,10 @@ pub fn find_port_by_serial_number(serial_number: &str) -> Result<String> {
     for port in &ports {
         if let SerialPortType::UsbPort(usb_info) = &port.port_type {
             usb_ports.push((&port.port_name, usb_info));
-            if let Some(ref sn) = usb_info.serial_number {
-                if sn == serial_number {
-                    return Ok(port.port_name.clone());
-                }
+            if let Some(ref sn) = usb_info.serial_number
+                && sn == serial_number
+            {
+                return Ok(port.port_name.clone());
             }
         }
     }

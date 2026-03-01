@@ -184,10 +184,10 @@ impl AppState {
         };
 
         for port in ports {
-            if let serialport::SerialPortType::UsbPort(usb_info) = port.port_type {
-                if usb_info.serial_number.as_deref() == Some(serial_id) {
-                    return Some(port.port_name);
-                }
+            if let serialport::SerialPortType::UsbPort(usb_info) = port.port_type
+                && usb_info.serial_number.as_deref() == Some(serial_id)
+            {
+                return Some(port.port_name);
             }
         }
         None
