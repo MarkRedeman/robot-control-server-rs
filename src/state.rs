@@ -22,15 +22,8 @@ pub struct RobotInfo {
     pub client: Option<RobotClientInfo>,
 }
 
-#[derive(Debug, Clone)]
-pub struct RobotSnapshot {
-    pub state: Option<ArmState>,
-    pub error: Option<String>,
-}
-
 pub struct RobotEntry {
     pub client: Arc<dyn RobotClient>,
-    pub snapshot: Arc<Mutex<RobotSnapshot>>,
 }
 
 #[derive(Clone)]
@@ -53,25 +46,17 @@ impl AppState {
         }
     }
 
-    pub fn get_or_create_robot(
-        &self,
-        serial_id: &str,
-    ) -> Result<Arc<Mutex<RobotSnapshot>>, String> {
+    pub fn get_or_create_robot(&self, serial_id: &str) -> Result<(), String> {
         tracing::info!("get_or_create_robot: serial_id={}", serial_id);
 
         let mut robots = self.robots.lock().map_err(|e| e.to_string())?;
 
-        if let Some(entry) = robots.get(serial_id) {
+        if robots.contains_key(serial_id) {
             tracing::info!("Found existing robot for serial_id={}", serial_id);
-            return Ok(entry.snapshot.clone());
+            return Ok(());
         }
 
         tracing::info!("Creating new robot for serial_id={}", serial_id);
-
-        let snapshot = Arc::new(Mutex::new(RobotSnapshot {
-            state: None,
-            error: None,
-        }));
 
         let calibration = self
             .calibration
@@ -95,15 +80,10 @@ impl AppState {
             .map_err(|e| e.to_string())?,
         ) as Arc<dyn RobotClient>;
 
-        let entry = RobotEntry {
-            client,
-            snapshot: snapshot.clone(),
-        };
-
-        robots.insert(serial_id.to_string(), entry);
+        robots.insert(serial_id.to_string(), RobotEntry { client });
 
         tracing::info!("Created robot entry for serial_id={}", serial_id);
-        Ok(snapshot)
+        Ok(())
     }
 
     fn find_port_by_serial(serial_id: &str) -> Option<String> {

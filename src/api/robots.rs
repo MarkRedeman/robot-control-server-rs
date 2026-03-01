@@ -61,7 +61,7 @@ impl RobotsApi {
     ) -> Result<Json<RobotStateResponse>, AppError> {
         tracing::info!("API: get_robot_state called for serial_id={}", serial_id.0);
 
-        let _snapshot = state
+        state
             .get_or_create_robot(&serial_id.0)
             .map_err(AppError::robot_not_found)?;
 
@@ -122,7 +122,7 @@ impl RobotsApi {
         state: Data<&AppState>,
         serial_id: Path<String>,
     ) -> Result<Json<RobotFullStateResponse>, AppError> {
-        let _snapshot = state
+        state
             .get_or_create_robot(&serial_id.0)
             .map_err(AppError::robot_not_found)?;
 
@@ -149,7 +149,7 @@ impl RobotsApi {
         serial_id: Path<String>,
         req: Json<SetJointsRequest>,
     ) -> Result<Json<CommandResponse>, AppError> {
-        let _snapshot = state
+        state
             .get_or_create_robot(&serial_id.0)
             .map_err(AppError::robot_not_found)?;
 

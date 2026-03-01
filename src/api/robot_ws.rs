@@ -35,18 +35,15 @@ pub async fn robot_ws(
     let fps_val = query.fps.unwrap_or(30).clamp(1, 240);
     let normalize = query.normalize.unwrap_or(true);
 
-    let snapshot = match state.get_or_create_robot(&serial_id) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::error!("Failed to get robot: {}", e);
-            return poem::http::StatusCode::NOT_FOUND.into_response();
-        }
-    };
+    if let Err(e) = state.get_or_create_robot(&serial_id) {
+        tracing::error!("Failed to get robot: {}", e);
+        return poem::http::StatusCode::NOT_FOUND.into_response();
+    }
 
     let client = {
         match state.robots.lock() {
             Ok(robots) => match robots.get(&serial_id) {
-                Some(e) => e.client.clone(),
+                Some(entry) => entry.client.clone(),
                 None => return poem::http::StatusCode::NOT_FOUND.into_response(),
             },
             Err(_) => return poem::http::StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -54,9 +51,7 @@ pub async fn robot_ws(
     };
 
     ws.on_upgrade(move |socket| {
-        handle_socket(
-            socket, serial_id, client, snapshot, fps_val, normalize 
-        )
+        handle_socket(socket, serial_id, client, fps_val, normalize)
     })
     .into_response()
 }
@@ -65,7 +60,6 @@ async fn handle_socket(
     mut socket: WebSocketStream,
     serial_id: String,
     client: Arc<dyn RobotClient>,
-    snapshot: Arc<std::sync::Mutex<crate::state::RobotSnapshot>>,
     fps: u32,
     normalize: bool,
 ) {
@@ -73,8 +67,8 @@ async fn handle_socket(
     let read_interval = Duration::from_millis(1000 / fps as u64);
 
     let client_read = client.clone();
-    let snapshot_clone = snapshot.clone();
     let tx_clone = tx.clone();
+    let serial_id_clone = serial_id.clone();
 
     tokio::spawn(async move {
         let mut tick_interval = interval(read_interval);
@@ -84,7 +78,7 @@ async fn handle_socket(
 
             let state_result = tokio::task::spawn_blocking({
                 let client = client_read.clone();
-                move || client.read_state(normalize)
+                move || client.read_state()
             })
             .await
             .unwrap_or_else(|e| Err(anyhow::anyhow!("Task error: {}", e)));
@@ -94,34 +88,27 @@ async fn handle_socket(
                     let mut flat_state = std::collections::HashMap::new();
                     for joint in &state.joints {
                         let val = if normalize {
-                            joint.calibrated_angle.unwrap_or_else(|| f64::from(joint.raw_position))
+                            joint
+                                .calibrated_angle
+                                .unwrap_or_else(|| f64::from(joint.raw_position))
                         } else {
                             f64::from(joint.raw_position)
                         };
-                        let joint_name =  joint.joint.clone();
-
-                        flat_state.insert(joint_name, val);
+                        flat_state.insert(joint.joint.clone(), val);
                     }
 
-                    let timestamp = state.timestamp;
-
                     let response = RobotResponse::StateWasUpdated {
-                        timestamp,
+                        timestamp: state.timestamp,
                         state: flat_state,
                         is_controlled: true, // TODO: track actual torque state
                     };
                     let json = serde_json::to_string(&response).unwrap_or_default();
-                    let _ = tx_clone.send(json).await;
-
-                    if let Ok(mut snap) = snapshot_clone.lock() {
-                        snap.state = Some(state);
-                        snap.error = None;
+                    if tx_clone.send(json).await.is_err() {
+                        break;
                     }
                 }
                 Err(e) => {
-                    if let Ok(mut snap) = snapshot_clone.lock() {
-                        snap.error = Some(e.to_string());
-                    }
+                    tracing::warn!("read_state failed for {}: {}", serial_id_clone, e);
                 }
             }
         }
@@ -138,7 +125,7 @@ async fn handle_socket(
                 match msg {
                     Some(Ok(Message::Text(text))) => {
                         let cmd = match parse_command(&text) {
-                            Ok(c) => c,
+                            Ok(command) => command,
                             Err(e) => {
                                 let error_response = RobotResponse::Error {
                                     error: "parse_error".to_string(),
@@ -152,8 +139,7 @@ async fn handle_socket(
 
                         let response = tokio::task::spawn_blocking({
                             let client = client.clone();
-
-                            move || handle_command(client.as_ref(), cmd, normalize )
+                            move || handle_command(client.as_ref(), cmd)
                         })
                         .await
                         .unwrap_or_else(|e| RobotResponse::Error {
