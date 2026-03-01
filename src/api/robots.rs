@@ -62,7 +62,7 @@ impl RobotsApi {
         tracing::info!("API: get_robot_state called for serial_id={}", serial_id.0);
 
         state
-            .get_or_create_robot(&serial_id.0)
+            .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
         tracing::info!("API: robot created/retrieved, reading state");
@@ -123,7 +123,7 @@ impl RobotsApi {
         serial_id: Path<String>,
     ) -> Result<Json<RobotFullStateResponse>, AppError> {
         state
-            .get_or_create_robot(&serial_id.0)
+            .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
         let state_data = tokio::task::spawn_blocking({
@@ -150,7 +150,7 @@ impl RobotsApi {
         req: Json<SetJointsRequest>,
     ) -> Result<Json<CommandResponse>, AppError> {
         state
-            .get_or_create_robot(&serial_id.0)
+            .get_or_create_robot(&serial_id.0, None)
             .map_err(AppError::robot_not_found)?;
 
         let client = {

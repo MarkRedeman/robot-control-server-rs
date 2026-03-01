@@ -35,7 +35,7 @@ pub async fn robot_ws(
     let fps_val = query.fps.unwrap_or(30).clamp(1, 240);
     let normalize = query.normalize.unwrap_or(true);
 
-    if let Err(e) = state.get_or_create_robot(&serial_id) {
+    if let Err(e) = state.get_or_create_robot(&serial_id, query.calibration_id.as_deref()) {
         tracing::error!("Failed to get robot: {}", e);
         return poem::http::StatusCode::NOT_FOUND.into_response();
     }

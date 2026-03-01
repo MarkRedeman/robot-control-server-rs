@@ -5,7 +5,7 @@ use poem_openapi::Object;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Settings;
-use crate::robots::{load_calibration, ArmState, FeetechRobotClient, RobotClient};
+use crate::robots::{load_calibration, ArmCalibration, ArmState, FeetechRobotClient, RobotClient};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Object)]
 pub struct RobotClientInfo {
@@ -24,6 +24,9 @@ pub struct RobotInfo {
 
 pub struct RobotEntry {
     pub client: Arc<dyn RobotClient>,
+    /// Which calibration_id was used when this client was created.
+    /// `None` means the server's default calibration was used.
+    pub calibration_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -46,22 +49,46 @@ impl AppState {
         }
     }
 
-    pub fn get_or_create_robot(&self, serial_id: &str) -> Result<(), String> {
-        tracing::info!("get_or_create_robot: serial_id={}", serial_id);
+    /// Ensure a robot client exists for `serial_id`.
+    ///
+    /// When `calibration_id` is `Some`, the calibration file
+    /// `calibration/{calibration_id}.json` (relative to the repo root) is
+    /// loaded and used instead of the server's default calibration.  If a
+    /// robot already exists but was created with a *different*
+    /// `calibration_id`, the old client is dropped and a new one is created.
+    pub fn get_or_create_robot(
+        &self,
+        serial_id: &str,
+        calibration_id: Option<&str>,
+    ) -> Result<(), String> {
+        tracing::info!(
+            "get_or_create_robot: serial_id={}, calibration_id={:?}",
+            serial_id,
+            calibration_id
+        );
 
         let mut robots = self.robots.lock().map_err(|e| e.to_string())?;
 
-        if robots.contains_key(serial_id) {
-            tracing::info!("Found existing robot for serial_id={}", serial_id);
-            return Ok(());
+        // If an entry already exists and the calibration matches, reuse it.
+        if let Some(entry) = robots.get(serial_id) {
+            if entry.calibration_id.as_deref() == calibration_id {
+                tracing::info!("Found existing robot for serial_id={}", serial_id);
+                return Ok(());
+            }
+            tracing::info!(
+                "Recreating robot for serial_id={}: calibration changed from {:?} to {:?}",
+                serial_id,
+                entry.calibration_id,
+                calibration_id
+            );
+            robots.remove(serial_id);
         }
 
         tracing::info!("Creating new robot for serial_id={}", serial_id);
 
         let calibration = self
-            .calibration
-            .as_ref()
-            .and_then(|v| serde_json::from_value(v.clone()).ok());
+            .resolve_calibration(calibration_id)
+            .map_err(|e| e.to_string())?;
 
         let port = Self::find_port_by_serial(serial_id);
         tracing::info!("Found port {:?} for serial_id {}", port, serial_id);
@@ -80,10 +107,37 @@ impl AppState {
             .map_err(|e| e.to_string())?,
         ) as Arc<dyn RobotClient>;
 
-        robots.insert(serial_id.to_string(), RobotEntry { client });
+        robots.insert(
+            serial_id.to_string(),
+            RobotEntry {
+                client,
+                calibration_id: calibration_id.map(String::from),
+            },
+        );
 
         tracing::info!("Created robot entry for serial_id={}", serial_id);
         Ok(())
+    }
+
+    /// Resolve calibration data: use `calibration_id` file if provided,
+    /// otherwise fall back to the server's default calibration.
+    fn resolve_calibration(
+        &self,
+        calibration_id: Option<&str>,
+    ) -> Result<Option<ArmCalibration>, String> {
+        match calibration_id {
+            Some(id) => {
+                let path = std::path::PathBuf::from(format!("calibration/{}.json", id));
+                tracing::info!("Loading calibration from {:?}", path);
+                let cal = load_calibration(&path)
+                    .map_err(|e| format!("Failed to load calibration '{}': {}", id, e))?;
+                Ok(Some(cal))
+            }
+            None => Ok(self
+                .calibration
+                .as_ref()
+                .and_then(|v| serde_json::from_value(v.clone()).ok())),
+        }
     }
 
     fn find_port_by_serial(serial_id: &str) -> Option<String> {
