@@ -32,6 +32,10 @@ services:
       - plugdev
       - video
 
+    # Share robot calibration files
+    volumes:
+      - ./calibration:/app/calibration:ro
+
     # --- Option 1: Privileged mode (active by default) ---
     # Grants full access to all host devices. Easiest setup, but the
     # container runs with elevated privileges.

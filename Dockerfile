@@ -29,7 +29,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libudev-dev \
     libclang-dev \
     llvm-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 COPY --from=planner /app/recipe.json recipe.json
 # Build dependencies - this is the caching Docker layer!
@@ -63,7 +64,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 \
     udev \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    tzdata \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
 # Create non-root user
 RUN groupadd --gid 1000 appuser \
