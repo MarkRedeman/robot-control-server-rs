@@ -5,6 +5,9 @@ on:
     tags: ["v*"]
   workflow_dispatch: # Allow manual runs
 
+permissions:
+  contents: write # For release
+
 jobs:
   build-linux-x86_64:
     name: Build Linux x86_64
