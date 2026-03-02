@@ -49,14 +49,30 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Install ARM64 dependencies
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y \
+            libudev-dev:arm64 \
+            libjpeg-dev:arm64 \
+            libv4l-dev:arm64 \
+            libssl-dev:arm64 \
+            libclang-dev:arm64 \
+            clang:arm64 \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-unknown-linux-gnu
 
-      - name: Install cross
+      - name: Configure cross-compilation
         run: |
-          cargo install cross
+          mkdir -p ~/.cargo
+          echo '[target.aarch64-unknown-linux-gnu]' > ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -67,7 +83,7 @@ jobs:
           CARGO_PROFILE_RELEASE_PANIC=abort \
           CARGO_PROFILE_RELEASE_STRIP=symbols \
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 \
-          cross build --release --target aarch64-unknown-linux-gnu --bin server --features nokhwa/input-v4l
+          cargo build --release --target aarch64-unknown-linux-gnu --bin server --features nokhwa/input-v4l
 
       - name: Prepare Artifact
         run: |
@@ -176,7 +192,7 @@ jobs:
 
   release:
     name: Create Release
-    needs: [build-linux-x86_64, build-linux-arm64, build-macos-x86_64, build-macos-arm64, build-windows-x86_64, build-windows-arm64]
+    needs: [build-linux-x86_64, build-linux-arm64, build-macos-arm64, build-windows-x86_64, build-windows-arm64]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
