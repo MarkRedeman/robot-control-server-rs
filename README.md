@@ -23,6 +23,44 @@ cargo run --bin server
 ROBOT_CONTROL_HOST=127.0.0.1 ROBOT_CONTROL_PORT=9000 cargo run --bin server
 ```
 
+### Or use mise
+
+```bash
+mise trust
+mise install
+mise run
+```
+
+<details>
+<summary>Show all mise commands</summary>
+
+```bash
+# Install tools
+mise install
+
+# Run the server
+mise run
+
+# Development (watch mode)
+mise run watch
+
+# Format, lint, and test
+mise all
+
+# Individual tasks
+mise fmt           # Check formatting
+mise format-fix    # Fix formatting
+mise lint          # Run clippy
+mise test          # Run tests
+mise build         # Debug build
+mise build-release # Optimized release build
+mise check         # Check without building
+mise doc           # Generate docs
+mise clean         # Clean build artifacts
+```
+
+</details>
+
 ### API Endpoints
 
 | Endpoint | Method | Description |

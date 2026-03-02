@@ -1,0 +1,54 @@
+[tools]
+rust = "stable"
+
+[tasks.fmt]
+run = "cargo fmt --all -- --check"
+description = "Check code formatting"
+
+[tasks.format-fix]
+run = "cargo fmt --all"
+description = "Fix code formatting"
+
+[tasks.lint]
+run = "cargo clippy --all-targets --all-features"
+description = "Run clippy linter"
+
+[tasks.test]
+run = "cargo test --all-targets --all-features"
+description = "Run tests"
+
+[tasks.test-verbose]
+run = "cargo test --all-targets --all-features -- --nocapture"
+description = "Run tests with output"
+
+[tasks.build]
+run = "cargo build"
+description = "Build in debug mode"
+
+[tasks.build-release]
+run = "cargo build --release"
+description = "Build in release mode (optimized)"
+
+[tasks.check]
+run = "cargo check --all-targets --all-features"
+description = "Check code without building"
+
+[tasks.doc]
+run = "cargo doc --no-deps --all-features"
+description = "Generate documentation"
+
+[tasks.clean]
+run = "cargo clean"
+description = "Clean build artifacts"
+
+[tasks.run]
+run = "cargo run"
+description = "Run the application"
+
+[tasks.watch]
+run = "cargo watch -x check -x test"
+description = "Watch for changes and run check + test"
+
+[tasks.all]
+run = "cargo fmt --all && cargo clippy --all-targets --all-features && cargo test --all-targets --all-features"
+description = "Run format, lint, and test"
