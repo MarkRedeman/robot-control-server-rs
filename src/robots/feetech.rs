@@ -89,11 +89,25 @@ impl FeetechRobotClient {
             .with_protocol_v1()
             .with_serial_port(serial_port);
 
-        let mut guard = self
-            .controller
-            .lock()
-            .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
-        *guard = Some(controller);
+        {
+            let mut guard = self
+                .controller
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            *guard = Some(controller);
+        }
+
+        // Verify every servo responds before considering the connection
+        // established (matches the SO-101 driver's connect-time ping).
+        if let Err(e) = self.ping_servos() {
+            let mut guard = self
+                .controller
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+            *guard = None;
+            return Err(e);
+        }
+
         Ok(())
     }
 
@@ -156,6 +170,21 @@ impl FeetechRobotClient {
 
     fn motor_ids() -> Vec<u8> {
         Joint::ALL.iter().map(|j| j.motor_id()).collect()
+    }
+
+    /// Ping every servo and return an error if any does not respond.
+    fn ping_servos(&self) -> anyhow::Result<()> {
+        self.with_controller(|controller| {
+            for id in Self::motor_ids() {
+                let responded = controller
+                    .ping(id)
+                    .map_err(|e| anyhow::anyhow!("Failed to ping servo {id}: {e}"))?;
+                if !responded {
+                    anyhow::bail!("Servo {id} did not respond");
+                }
+            }
+            Ok(())
+        })
     }
 
     /// Run `f` with the connected controller, returning a clear error when
