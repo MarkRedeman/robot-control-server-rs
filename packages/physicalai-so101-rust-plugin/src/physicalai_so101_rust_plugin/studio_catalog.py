@@ -246,8 +246,9 @@ _IDENTIFY_WIGGLE = 0.08
 
 def identify_so101_rust_visually(connection_string: str) -> None:
     """Move the gripper a small way and back to identify a connected robot."""
-    joint_index = SO101Rust.JOINT_ORDER.index("gripper")
-    driver = SO101Rust(port=connection_string, unit="ticks", enable_torque_on_connect=True)
+    joint = "gripper"
+    joint_index = SO101Rust.JOINT_ORDER.index(joint)
+    driver = SO101Rust.uncalibrated(port=connection_string, enable_torque_on_connect=True)
     driver.connect()
     try:
         observation = driver.get_observation()
@@ -261,6 +262,12 @@ def identify_so101_rust_visually(connection_string: str) -> None:
             driver.send_action(action)
             time.sleep(1.0)
             observation = driver.get_observation()
+    except RuntimeError as exc:
+        msg = (
+            f"Robot identify failed: {joint} stopped responding during motion. "
+            "The servo may have tripped overload protection. Power-cycle the robot and try again."
+        )
+        raise RuntimeError(msg) from exc
     finally:
         driver.set_torque(enabled=False)
         driver.disconnect()

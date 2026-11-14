@@ -97,6 +97,28 @@ class SO101Rust(Robot):
             _calibration_to_json(calibration),
         )
 
+    @classmethod
+    def uncalibrated(
+        cls,
+        port: str,
+        baudrate: int = 1_000_000,
+        unit: str = "ticks",
+        *,
+        enable_torque_on_connect: bool = True,
+    ) -> SO101Rust:
+        """Create an SO-101 driver in explicit raw-ticks mode.
+
+        Intended for bringup, debugging, and identification — not for policy
+        inference/deployment.
+        """
+        return cls(
+            port=port,
+            calibration=None,
+            baudrate=baudrate,
+            unit=unit,
+            enable_torque_on_connect=enable_torque_on_connect,
+        )
+
     @property
     def port(self) -> str:
         """Serial port path."""
