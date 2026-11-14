@@ -44,3 +44,23 @@ impl FromStr for JointUnit {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_known_units() {
+        assert_eq!(
+            "normalized".parse::<JointUnit>().unwrap(),
+            JointUnit::Normalized
+        );
+        assert_eq!("degrees".parse::<JointUnit>().unwrap(), JointUnit::Degrees);
+        assert_eq!("ticks".parse::<JointUnit>().unwrap(), JointUnit::Ticks);
+    }
+
+    #[test]
+    fn rejects_unknown_units() {
+        assert!("radians".parse::<JointUnit>().is_err());
+    }
+}

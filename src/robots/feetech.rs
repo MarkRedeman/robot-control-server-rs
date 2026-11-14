@@ -433,3 +433,146 @@ impl RobotClient for FeetechRobotClient {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::calibration::JointCalibration;
+    use super::*;
+
+    fn sample_calibration() -> ArmCalibration {
+        let mut cal = HashMap::new();
+        let entries = [
+            ("shoulder_pan", 1, 0, 344, 694, 3424),
+            ("shoulder_lift", 2, 0, -1254, 825, 3216),
+            ("elbow_flex", 3, 0, 974, 899, 3127),
+            ("wrist_flex", 4, 0, 798, 856, 3205),
+            ("wrist_roll", 5, 0, -1103, 104, 3925),
+            ("gripper", 6, 0, 1328, 1727, 2987),
+        ];
+        for (name, id, drive_mode, homing_offset, range_min, range_max) in entries {
+            cal.insert(
+                name.to_string(),
+                JointCalibration {
+                    id,
+                    drive_mode,
+                    homing_offset,
+                    range_min,
+                    range_max,
+                },
+            );
+        }
+        cal
+    }
+
+    fn calibrated_client(unit: JointUnit) -> FeetechRobotClient {
+        FeetechRobotClient::new(
+            "/dev/ttyUSB0".into(),
+            1_000_000,
+            Some(sample_calibration()),
+            unit,
+        )
+        .unwrap()
+    }
+
+    fn uncalibrated_client() -> FeetechRobotClient {
+        FeetechRobotClient::new("/dev/ttyUSB0".into(), 1_000_000, None, JointUnit::Ticks).unwrap()
+    }
+
+    /// Known lerobot values from readme.org: raw positions and the
+    /// corresponding normalized values.
+    #[test]
+    fn normalized_positions_match_lerobot() {
+        let client = calibrated_client(JointUnit::Normalized);
+        let raw = [2023i32, 852, 3111, 2875, 2613, 2208];
+        let expected = [
+            -2.637362637362642,
+            -97.74153074027603,
+            98.5637342908438,
+            71.9029374201788,
+            31.32687778068569,
+            38.17460317460317,
+        ];
+        for (i, &joint) in Joint::ALL.iter().enumerate() {
+            let value = client.convert_position(raw[i], joint);
+            assert!(
+                (value - expected[i]).abs() < 1e-9,
+                "{}: got {value}, expected {}",
+                joint.name(),
+                expected[i]
+            );
+        }
+    }
+
+    #[test]
+    fn degrees_are_relative_to_range_midpoint() {
+        let client = calibrated_client(JointUnit::Degrees);
+        // shoulder_pan mid = (694 + 3424) / 2 = 2059.
+        let value = client.convert_position(2023, Joint::Base);
+        let expected = (2023.0 - 2059.0) * 360.0 / 4095.0;
+        assert!((value - expected).abs() < 1e-9);
+
+        // Gripper stays percentage even in degrees mode.
+        let gripper = client.convert_position(2208, Joint::Gripper);
+        assert!((gripper - 38.17460317460317).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ticks_are_passthrough() {
+        let client = uncalibrated_client();
+        assert_eq!(client.convert_position(2208, Joint::Base), 2208.0);
+    }
+
+    #[test]
+    fn convert_round_trips_within_one_tick() {
+        for unit in [JointUnit::Normalized, JointUnit::Degrees] {
+            let client = calibrated_client(unit);
+            let cal = client.calibration.as_ref().unwrap();
+            for &joint in Joint::ALL.iter() {
+                let jc = &cal[joint.name()];
+                // Normalized mode clamps to the calibrated range, so test
+                // within-range values (degrees does not clamp).
+                let raws = [
+                    jc.range_min,
+                    (jc.range_min + jc.range_max) / 2,
+                    jc.range_max,
+                ];
+                for &raw in &raws {
+                    let value = client.convert_position(raw, joint);
+                    let back = client.convert_value(value, joint);
+                    assert!(
+                        (i32::from(back) - raw).abs() <= 1,
+                        "unit={:?} joint={} raw={raw}: value={value} back={back}",
+                        unit,
+                        joint.name()
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn unit_calibration_combinations_are_validated() {
+        assert!(
+            FeetechRobotClient::new(
+                "/dev/ttyUSB0".into(),
+                1_000_000,
+                Some(sample_calibration()),
+                JointUnit::Ticks,
+            )
+            .is_err()
+        );
+        assert!(
+            FeetechRobotClient::new(
+                "/dev/ttyUSB0".into(),
+                1_000_000,
+                None,
+                JointUnit::Normalized,
+            )
+            .is_err()
+        );
+        assert!(
+            FeetechRobotClient::new("/dev/ttyUSB0".into(), 1_000_000, None, JointUnit::Ticks,)
+                .is_ok()
+        );
+    }
+}
