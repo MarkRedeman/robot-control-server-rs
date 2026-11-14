@@ -9,20 +9,25 @@ over the `Robot` and `Camera` interfaces.
 
 ## Repository layout
 
-This package lives at the root of the `robot-control-server` repository:
+This package is a Rust + Python mixed project. The Rust crate lives at the repo
+root; this Python package lives under `packages/`:
 
 ```
-robot-control-server/                     # ← repo root
-├── Cargo.toml                            # Rust crate manifest
-├── pyproject.toml                        # Python package manifest (maturin)
-├── src/                                  # Rust source
-└── python/
-    └── physicalai_so101_rust_plugin/     # Python source (the package)
+robot-control-server/                          # ← repo root (Rust crate)
+├── Cargo.toml                                 # Rust crate manifest
+├── src/                                       # Rust source
+└── packages/
+    └── physicalai-so101-rust-plugin/          # ← Python package root
+        ├── pyproject.toml                     # Python package manifest (maturin)
+        ├── README.md
+        ├── src/physicalai_so101_rust_plugin/  # Python source
+        └── tests/
 ```
 
-The examples below say "from the repo root"; that always means
-`cd /path/to/robot-control-server` — the directory containing `pyproject.toml`
-and `Cargo.toml`.
+The examples below say "from the package root"; that always means
+`cd /path/to/robot-control-server/packages/physicalai-so101-rust-plugin` — the
+directory containing `pyproject.toml`. They say "from the repo root"; that means
+`cd /path/to/robot-control-server` — the directory containing `Cargo.toml`.
 
 ## Installation (from a release)
 
@@ -34,12 +39,6 @@ cd /path/to/your/project
 uv add physicalai-so101-rust-plugin
 ```
 
-or, using pip inside your project's venv:
-
-```bash
-pip install physicalai-so101-rust-plugin
-```
-
 Prebuilt wheels are published for Linux (x86_64 and aarch64). Installing
 registers `SO101Rust_Follower` and `SO101Rust_Leader` with the Physical AI
 Studio robot catalog.
@@ -47,26 +46,27 @@ Studio robot catalog.
 ## Editable install (for development)
 
 An editable install builds the Rust extension once but lets you edit the Python
-sources in place. Run it from the repo root:
+sources in place. Run it from the package root:
 
 ```bash
-cd /path/to/robot-control-server
-uv pip install -e .            # editable install into the active venv
+cd /path/to/robot-control-server/packages/physicalai-so101-rust-plugin
+uv sync --extra tests           # build the Rust extension, install the package and deps
 ```
 
-or with plain pip:
+`uv sync` resolves the build backend (maturin), compiles the Rust library, and
+installs the package plus its dependencies into a project-local venv. Once done,
+run commands with `uv run`:
 
 ```bash
-cd /path/to/robot-control-server
-pip install -e .
+uv run pytest
 ```
 
-Alternatively, `maturin develop` builds the Rust extension and installs the
-package without requiring a separate `pip` step:
+Alternatively, `maturin develop` builds and installs into the already-active
+venv without creating a new one:
 
 ```bash
-cd /path/to/robot-control-server
-uvx maturin develop            # runs maturin without installing it globally
+cd /path/to/robot-control-server/packages/physicalai-so101-rust-plugin
+uvx maturin develop             # runs maturin without installing it globally
 ```
 
 > If you are developing against a local `physicalai` checkout rather than the
@@ -75,24 +75,16 @@ uvx maturin develop            # runs maturin without installing it globally
 
 ## Installing from a relative path
 
-You can also point `uv`/`pip` at a relative path to this repository from your
-own project directory. From your project directory:
+You can also point `uv` at a relative path to this package from your own project
+directory. From your project directory:
 
 ```bash
 cd /path/to/your/project
-uv add --editable ../robot-control-server
+uv add --editable ../robot-control-server/packages/physicalai-so101-rust-plugin
 ```
 
-or, with pip:
-
-```bash
-cd /path/to/your/project
-pip install -e ../robot-control-server
-```
-
-In both cases the path (`../robot-control-server`) is resolved relative to the
-current working directory, so adjust it to wherever this repository is checked
-out.
+The path is resolved relative to the current working directory, so adjust it to
+wherever this repository is checked out.
 
 ## Robot usage
 
@@ -157,24 +149,24 @@ leader = root / "so101-leader" / "urdf" / "so101_leader.urdf"
 
 ## Building a wheel from source
 
-From the repo root:
+From the package root:
 
 ```bash
-cd /path/to/robot-control-server
+cd /path/to/robot-control-server/packages/physicalai-so101-rust-plugin
 uvx maturin build --release --out dist
 ```
 
 This compiles the Rust library (`robot-control-server`) as a `cdylib` behind the
 `python` feature and packages it as the `physicalai_so101_rust_plugin._native`
-extension module. The wheel is written to `dist/`.
+extension module. The wheel is written to this package's `dist/` directory.
 
 ## Development
 
-Run the Python tests from the repo root (they mock the native module, so no
-hardware or compiled extension is required):
+Run the Python tests from the package root (they mock the native module, so no
+hardware is required):
 
 ```bash
-cd /path/to/robot-control-server
+cd /path/to/robot-control-server/packages/physicalai-so101-rust-plugin
 uv run pytest
 ```
 

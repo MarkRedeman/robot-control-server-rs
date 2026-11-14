@@ -51,6 +51,7 @@ jobs:
       - name: Build wheel
         uses: PyO3/maturin-action@v1
         with:
+          working-directory: packages/physicalai-so101-rust-plugin
           target: ${{ matrix.target }}
           manylinux: auto
           args: --release --out dist
@@ -59,7 +60,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.target }}
-          path: dist
+          path: packages/physicalai-so101-rust-plugin/dist/
 
   smoke-test:
     name: Smoke test
@@ -73,19 +74,14 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
 
       - name: Verify clean wheel install
         run: |
-          python -m venv .venv-smoke
-          . .venv-smoke/bin/activate
-          python -m pip install --upgrade pip
-          python -m pip install dist/*.whl
-          python -m pip check
-          python - <<'PY'
+          uv venv .venv-smoke
+          uv pip install --python .venv-smoke/bin/python dist/*.whl
+          .venv-smoke/bin/python - <<'PY'
           import importlib.metadata as metadata
 
           from physicalai_so101_rust_plugin import SO101Rust, SO101RustUVCCamera, get_urdf_path

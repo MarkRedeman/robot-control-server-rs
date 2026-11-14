@@ -12,6 +12,9 @@ jobs:
   build-and-test:
     name: Build & Test
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/physicalai-so101-rust-plugin
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,19 +32,11 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
 
-      - name: Install test dependencies
-        run: python -m pip install pytest pytest-anyio
-
-      - name: Build and install the package (maturin develop)
-        uses: PyO3/maturin-action@v1
-        with:
-          command: develop
-          args: --release
+      - name: Build and install the package (uv sync)
+        run: uv sync --extra tests
 
       - name: Run Python tests
-        run: python -m pytest
+        run: uv run pytest
