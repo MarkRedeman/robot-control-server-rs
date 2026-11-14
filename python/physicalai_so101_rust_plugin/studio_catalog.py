@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from loguru import logger
@@ -14,6 +15,7 @@ from physicalai_studio_plugin import (
     CatalogRobot,
     CatalogRobotFactory,
     PortScanner,
+    RobotAsset,
     RobotCatalogDefinition,
     RobotProbe,
     SerialPortInfo,
@@ -24,6 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 from serial.tools import list_ports
 
 from physicalai_so101_rust_plugin import SO101Rust
+from physicalai_so101_rust_plugin._urdf import get_urdf_path
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -149,6 +152,30 @@ class SO101RustLeaderPayload(SO101RustRobotPayload):
             robot_field_ui({"advanced_configuration": True}),
         ),
     )
+
+
+_SO101_TO_URDF = {
+    "shoulder_pan.pos": ["shoulder_pan"],
+    "shoulder_lift.pos": ["shoulder_lift"],
+    "elbow_flex.pos": ["elbow_flex"],
+    "wrist_flex.pos": ["wrist_flex"],
+    "wrist_roll.pos": ["wrist_roll"],
+    "gripper.pos": ["gripper"],
+}
+
+_SO101_FOLLOWER_ASSET = RobotAsset(
+    urdf_relative_path=Path("so101-follower/so101_follower.urdf"),
+    packages={"SO101": Path("so101-follower")},
+    joint_map=_SO101_TO_URDF,
+    root_resolver=get_urdf_path,
+)
+
+_SO101_LEADER_ASSET = RobotAsset(
+    urdf_relative_path=Path("so101-leader/urdf/so101_leader.urdf"),
+    packages={"SO101": Path("so101-leader/urdf")},
+    joint_map=_SO101_TO_URDF,
+    root_resolver=get_urdf_path,
+)
 
 
 async def _build_so101_rust_driver(
@@ -306,7 +333,7 @@ def _definitions() -> list[RobotCatalogDefinition]:
             role="follower",
             robot_builder=_build_so101_rust_driver,
             robot_payload=SO101RustRobotPayload,
-            asset=None,
+            asset=_SO101_FOLLOWER_ASSET,
             probe=_SO101_RUST_PROBE,
         ),
         RobotCatalogDefinition(
@@ -315,7 +342,7 @@ def _definitions() -> list[RobotCatalogDefinition]:
             role="leader",
             robot_builder=_build_so101_rust_driver,
             robot_payload=SO101RustLeaderPayload,
-            asset=None,
+            asset=_SO101_LEADER_ASSET,
             probe=_SO101_RUST_PROBE,
         ),
     ]

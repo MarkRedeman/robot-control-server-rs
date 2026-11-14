@@ -8,6 +8,8 @@ from __future__ import annotations
 from importlib import import_module
 from typing import TYPE_CHECKING
 
+from physicalai_so101_rust_plugin._urdf import get_urdf_path as get_urdf_path
+
 if TYPE_CHECKING:
     from physicalai_so101_rust_plugin.camera import SO101RustUVCCamera as SO101RustUVCCamera
     from physicalai_so101_rust_plugin.robot import SO101Rust as SO101Rust
@@ -17,6 +19,7 @@ __all__ = [
     "SO101Rust",
     "SO101RustObservation",
     "SO101RustUVCCamera",
+    "get_urdf_path",
 ]
 
 
