@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.8,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "physicalai-so101-rust-plugin"
+version = "0.1.0"
+description = "Rust-backed SO-101 robot plugin for PhysicalAI"
+requires-python = ">=3.12"
+license = "Apache-2.0"
+dependencies = [
+    "physicalai>=0.4.0",
+    "physicalai-studio-plugin>=0.3.0",
+    "numpy>=1.24",
+    "loguru>=0.7",
+    "pydantic>=2.0",
+    "pyserial>=3.5",
+]
+
+[project.optional-dependencies]
+tests = ["pytest", "pytest-anyio"]
+
+[project.entry-points."physicalai.studio.catalog_plugins"]
+so101-rust = "physicalai_so101_rust_plugin.studio_catalog:register_physicalai_studio_plugin"
+
+[tool.maturin]
+python-source = "python"
+module-name = "physicalai_so101_rust_plugin._native"
+features = ["python"]
+
+[tool.pytest.ini_options]
+addopts = ["--strict-markers", "--strict-config", "-ra"]
+testpaths = "tests"
+pythonpath = "python"
