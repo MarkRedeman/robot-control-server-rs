@@ -20,7 +20,6 @@ import numpy as np
 
 from physicalai.config import export_config
 from physicalai.robot import Robot
-from physicalai.robot.device_ids import device_id_from_serial_port
 
 if TYPE_CHECKING:
     from physicalai.capture.frame import Frame
@@ -116,7 +115,7 @@ class SO101Rust(Robot):
     @property
     def device_ids(self) -> tuple[str, ...]:
         """Canonical physical-device identity, derived with no hardware I/O."""
-        return (device_id_from_serial_port(self._port),)
+        return (self._native.device_id(),)
 
     def connect(self) -> None:
         """Open the serial port and apply the configured torque state."""
