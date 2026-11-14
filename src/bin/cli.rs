@@ -10,7 +10,7 @@ use robot_control_server::robots::feetech;
 use robot_control_server::robots::feetech::ArmCalibration;
 use robot_control_server::robots::serial;
 use robot_control_server::robots::{
-    ArmState, FeetechRobotClient, RobotCommand, RobotResponse, RobotWorkerConfig,
+    ArmState, FeetechRobotClient, JointUnit, RobotCommand, RobotResponse, RobotWorkerConfig,
     RobotWorkerHandle, spawn_worker,
 };
 
@@ -120,21 +120,30 @@ fn main() -> Result<()> {
 
         let calibration = calibrations.get(idx).cloned().flatten();
 
+        let unit = if calibration.is_some() {
+            JointUnit::Normalized
+        } else {
+            JointUnit::Ticks
+        };
+
         let client = Arc::new(
-            FeetechRobotClient::new(
-                port_path.clone(),
-                port_path.clone(),
-                cli.baudrate,
-                calibration,
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to open serial port '{port_path}'.\n\
-                     Hint: check permissions (you may need to add your user to the 'dialout' group \
-                     or run with sudo)."
-                )
-            })?,
+            FeetechRobotClient::new(port_path.clone(), cli.baudrate, calibration, unit)
+                .with_context(|| {
+                    format!(
+                        "Failed to open serial port '{port_path}'.\n\
+                         Hint: check permissions (you may need to add your user to the 'dialout' group \
+                         or run with sudo)."
+                    )
+                })?,
         );
+
+        client.connect().with_context(|| {
+            format!(
+                "Failed to open serial port '{port_path}'.\n\
+                 Hint: check permissions (you may need to add your user to the 'dialout' group \
+                 or run with sudo)."
+            )
+        })?;
 
         let handle = spawn_worker(client, RobotWorkerConfig { fps });
 
