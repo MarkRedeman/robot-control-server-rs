@@ -104,12 +104,11 @@ fn main() -> Result<()> {
     // positionally to a robot port.
     let calibrations = load_calibrations(&cli.calibration, port_paths.len())?;
 
-    // Convert --interval to fps for the worker config.
-    let fps = if cli.interval > 0 {
-        (1000 / cli.interval).clamp(1, 240) as u32
-    } else {
-        240 // max throughput
-    };
+    // Convert --interval to fps for the worker config. A zero interval means
+    // max throughput.
+    let fps = 1000u64
+        .checked_div(cli.interval)
+        .map_or(240, |fps| fps.clamp(1, 240) as u32);
 
     let mut robots = Vec::with_capacity(port_paths.len());
     for (idx, port_path) in port_paths.iter().enumerate() {
