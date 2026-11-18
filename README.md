@@ -10,6 +10,7 @@ A Rust server for controlling SO101 robotic arms (6x Feetech STS3215 servos each
 - **Swagger UI** — Interactive API documentation at `/swagger-ui`
 - **Calibration support** — Load lerobot calibration JSON files for calibrated joint angles
 - **Threaded architecture** — Each robot is read on its own thread for maximum throughput
+- **Physical AI Studio plugin** — Rust-backed Python package that adds SO-101 robots and cameras to the Studio catalog
 
 ## Usage
 
@@ -164,6 +165,56 @@ curl -X POST http://localhost:8000/api/robots/YOUR_SERIAL_ID/command \
 # Open Swagger UI
 # Visit http://localhost:8000/swagger-ui
 ```
+
+## Physical AI Studio Plugin
+
+The [`physicalai-so101-rust-plugin`](packages/physicalai-so101-rust-plugin) package exposes this crate to Python through [Physical AI](https://github.com/openvinotoolkit/physicalai). It provides a Rust-backed SO-101 robot and UVC camera, and registers two entries in the Physical AI Studio robot catalog:
+
+- `SO101Rust_Follower` — follower arm with torque enabled on connect; accepts actions.
+- `SO101Rust_Leader` — leader arm with torque disabled on connect; read-only for teleoperation.
+
+### Installation
+
+From the environment used by Physical AI Studio:
+
+```bash
+uv add physicalai-so101-rust-plugin
+```
+
+Prebuilt wheels are published for Linux x86_64 and aarch64. To develop the plugin from this repository:
+
+```bash
+cd packages/physicalai-so101-rust-plugin
+uv sync --extra tests
+uv run pytest
+```
+
+### Using it in Studio
+
+1. Install the plugin in the same Python environment as Physical AI Studio.
+2. Add a robot and select `SO101Rust_Follower` or `SO101Rust_Leader` from the catalog.
+3. Pick the arm by USB serial number, or enter its serial port (for example `/dev/ttyUSB0`).
+4. Choose the joint units and upload the lerobot calibration JSON. `normalized` (the default) and `degrees` require calibration; `ticks` is only for uncalibrated bring-up.
+5. Connect the robot. Leaders remain torque-off and read-only; followers accept actions for recording and policy deployment.
+
+### Using it directly from Python
+
+```python
+from physicalai_so101_rust_plugin import SO101Rust, SO101RustUVCCamera
+
+robot = SO101Rust(port="/dev/ttyUSB0", calibration="follower.json", unit="normalized")
+robot.connect()
+observation = robot.get_observation()
+robot.send_action(observation.joint_positions)
+robot.disconnect()
+
+camera = SO101RustUVCCamera(device=0, width=640, height=480, fps=30)
+camera.connect()
+frame = camera.read()
+camera.disconnect()
+```
+
+See the [plugin README](packages/physicalai-so101-rust-plugin/README.md) for details on units, calibration, camera discovery, URDF assets, and building wheels from source.
 
 ## Building
 
