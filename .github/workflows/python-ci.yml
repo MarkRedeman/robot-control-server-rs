@@ -1,0 +1,42 @@
+name: Python CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build & Test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/physicalai-so101-rust-plugin
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          lfs: true # fetch the URDF STL meshes (Git LFS)
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libudev-dev libjpeg-dev libv4l-dev libclang-dev clang
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Build and install the package (uv sync)
+        run: uv sync --extra tests
+
+      - name: Run Python tests
+        run: uv run pytest

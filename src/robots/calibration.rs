@@ -49,7 +49,6 @@ pub fn by_motor_id(cal: &ArmCalibration) -> HashMap<u8, &JointCalibration> {
 ///
 /// Note: DEGREES mode does NOT clamp and does NOT apply drive_mode
 /// (matches lerobot's `_normalize` for `MotorNormMode.DEGREES`).
-#[allow(dead_code)]
 pub fn calibrated_degrees(position: i32, jc: &JointCalibration) -> f64 {
     let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
     (f64::from(position) - mid) * 360.0 / MAX_RESOLUTION
@@ -93,7 +92,6 @@ pub fn calibrated_percentage(position: i32, jc: &JointCalibration) -> f64 {
 /// Matches lerobot's `_unnormalize` for `MotorNormMode.DEGREES`:
 ///   mid = (range_min + range_max) / 2
 ///   raw = (value * 4095 / 360) + mid
-#[allow(dead_code)]
 pub fn unnormalize_degrees(value: f64, jc: &JointCalibration) -> i16 {
     let mid = (f64::from(jc.range_min) + f64::from(jc.range_max)) / 2.0;
     let raw = (value * MAX_RESOLUTION / 360.0) + mid;

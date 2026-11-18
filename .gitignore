@@ -1,1 +1,9 @@
 /target
+dist/
+uv.lock
+__pycache__/
+*.pyc
+*.so
+*.whl
+.venv/
+.pytest_cache/

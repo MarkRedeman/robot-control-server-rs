@@ -3,5 +3,7 @@ pub mod cameras;
 pub mod cli;
 pub mod config;
 pub mod error;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod robots;
 pub mod state;

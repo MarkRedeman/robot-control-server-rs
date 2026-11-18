@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::config::Settings;
 use crate::robots::{
-    ArmCalibration, FeetechRobotClient, RobotWorkerConfig, RobotWorkerHandle, load_calibration,
-    spawn_worker,
+    ArmCalibration, FeetechRobotClient, JointUnit, RobotWorkerConfig, RobotWorkerHandle,
+    load_calibration, spawn_worker,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize, Object)]
@@ -106,15 +106,23 @@ impl AppState {
 
         let port_path = port.unwrap_or_else(|| serial_id.to_string());
 
+        let unit = if calibration.is_some() {
+            JointUnit::Normalized
+        } else {
+            JointUnit::Ticks
+        };
+
         let client = Arc::new(
             FeetechRobotClient::new(
-                serial_id.to_string(),
                 port_path.clone(),
                 self.settings.baud_rate,
                 calibration,
+                unit,
             )
             .map_err(|e| e.to_string())?,
         );
+
+        client.connect().map_err(|e| e.to_string())?;
 
         let handle = spawn_worker(
             client,

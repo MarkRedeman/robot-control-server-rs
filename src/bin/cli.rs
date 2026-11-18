@@ -10,7 +10,7 @@ use robot_control_server::robots::feetech;
 use robot_control_server::robots::feetech::ArmCalibration;
 use robot_control_server::robots::serial;
 use robot_control_server::robots::{
-    ArmState, FeetechRobotClient, RobotCommand, RobotResponse, RobotWorkerConfig,
+    ArmState, FeetechRobotClient, JointUnit, RobotCommand, RobotResponse, RobotWorkerConfig,
     RobotWorkerHandle, spawn_worker,
 };
 
@@ -104,12 +104,11 @@ fn main() -> Result<()> {
     // positionally to a robot port.
     let calibrations = load_calibrations(&cli.calibration, port_paths.len())?;
 
-    // Convert --interval to fps for the worker config.
-    let fps = if cli.interval > 0 {
-        (1000 / cli.interval).clamp(1, 240) as u32
-    } else {
-        240 // max throughput
-    };
+    // Convert --interval to fps for the worker config. A zero interval means
+    // max throughput.
+    let fps = 1000u64
+        .checked_div(cli.interval)
+        .map_or(240, |fps| fps.clamp(1, 240) as u32);
 
     let mut robots = Vec::with_capacity(port_paths.len());
     for (idx, port_path) in port_paths.iter().enumerate() {
@@ -120,21 +119,30 @@ fn main() -> Result<()> {
 
         let calibration = calibrations.get(idx).cloned().flatten();
 
+        let unit = if calibration.is_some() {
+            JointUnit::Normalized
+        } else {
+            JointUnit::Ticks
+        };
+
         let client = Arc::new(
-            FeetechRobotClient::new(
-                port_path.clone(),
-                port_path.clone(),
-                cli.baudrate,
-                calibration,
-            )
-            .with_context(|| {
-                format!(
-                    "Failed to open serial port '{port_path}'.\n\
-                     Hint: check permissions (you may need to add your user to the 'dialout' group \
-                     or run with sudo)."
-                )
-            })?,
+            FeetechRobotClient::new(port_path.clone(), cli.baudrate, calibration, unit)
+                .with_context(|| {
+                    format!(
+                        "Failed to open serial port '{port_path}'.\n\
+                         Hint: check permissions (you may need to add your user to the 'dialout' group \
+                         or run with sudo)."
+                    )
+                })?,
         );
+
+        client.connect().with_context(|| {
+            format!(
+                "Failed to open serial port '{port_path}'.\n\
+                 Hint: check permissions (you may need to add your user to the 'dialout' group \
+                 or run with sudo)."
+            )
+        })?;
 
         let handle = spawn_worker(client, RobotWorkerConfig { fps });
 

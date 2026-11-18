@@ -1,0 +1,111 @@
+name: Python Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create releases and tags
+      pull-requests: write # create release PRs
+    outputs:
+      release_created: ${{ steps.release-please.outputs.release_created }}
+      tag_name: ${{ steps.release-please.outputs.tag_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Run release-please
+        id: release-please
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: .github/release-please-config.json
+          manifest-file: .github/.release-please-manifest.json
+          target-branch: main
+
+  build:
+    name: Build wheels (${{ matrix.target }})
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+          lfs: true # fetch the URDF STL meshes (Git LFS)
+
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          working-directory: packages/physicalai-so101-rust-plugin
+          target: ${{ matrix.target }}
+          manylinux: auto
+          args: --release --out dist
+
+      - name: Upload wheel
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.target }}
+          path: packages/physicalai-so101-rust-plugin/dist/
+
+  smoke-test:
+    name: Smoke test
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Verify clean wheel install
+        run: |
+          uv venv .venv-smoke
+          uv pip install --python .venv-smoke/bin/python dist/*.whl
+          .venv-smoke/bin/python - <<'PY'
+          import importlib.metadata as metadata
+
+          from physicalai_so101_rust_plugin import SO101Rust, SO101RustUVCCamera, get_urdf_path
+
+          print(metadata.version("physicalai-so101-rust-plugin"))
+          assert get_urdf_path().exists(), "bundled URDF directory is missing"
+          PY
+
+  publish:
+    name: Publish to PyPI
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/physicalai-so101-rust-plugin
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@v1.14.3

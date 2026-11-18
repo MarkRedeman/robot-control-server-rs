@@ -3,6 +3,9 @@ name = "robot-control-server"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 anyhow = "1.0.102"
 chrono = "0.4.44"
@@ -13,8 +16,10 @@ futures-util = "0.3.32"
 image = "0.25.9"
 nokhwa = { version = "0.10.10", default-features = false, features = ["input-v4l"] }
 nokhwa-core = "0.1.8"
+numpy = { version = "0.23", optional = true }
 poem = "3.1.12"
 poem-openapi = { version = "5.1.16", features = ["swagger-ui", "websocket"] }
+pyo3 = { version = "0.23", features = ["extension-module", "abi3-py38"], optional = true }
 rustypot = "1.4.2"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
@@ -23,3 +28,6 @@ thiserror = "2.0.18"
 tokio = { version = "1.49.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+
+[features]
+python = ["dep:pyo3", "dep:numpy"]
